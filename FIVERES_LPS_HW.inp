@@ -1,6 +1,12 @@
 [TITLE]
 Global Water Full network - Peak Day (Avg * 1.9) 
 
+Feifei Zheng, Aaron Zecchin (2013)
+An efficient decomposition and dual-stage multi-objective
+optimization method for water distribution systems with multiple
+supply sources
+http://dx.doi.org/10.1016/j.envsoft.2014.01.028
+
 [JUNCTIONS]
 ;ID              	Elev        	Demand      	Pattern         
  208             	8.1000      	5.700000    	3               	;
