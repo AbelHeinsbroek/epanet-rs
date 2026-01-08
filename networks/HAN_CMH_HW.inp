@@ -1,13 +1,5 @@
 [TITLE]
 Hanoi example by Fujiwara and Khang, Water Resources Research, 1990
-Download from
-https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/
-Modified as in
-This file is set in CMH and with the HW pipe roughness as in:
-ALL PIPES ARE 800.0 mm of diameter
-Ezio Todini; Simone Santopietro; Rudy Gargano; and Lewis A. Rossman (2021)
-Pressure Flow Based Algorithms for Pressure-Driven Analysis of Water Distribution Networks
-10.1061/(ASCE)WR.1943-5452.0001401
 
 [JUNCTIONS]
 ;ID              	Elev        	Demand      	Pattern         
@@ -48,44 +40,44 @@ Pressure Flow Based Algorithms for Pressure-Driven Analysis of Water Distributio
  1               	100.0       	                	;
 
 [TANKS]
-;ID              	Elevation   	InitLevel   	MinLevel    	MaxLevel    	Diameter    	MinVol      	VolCurve        	Overflow
+;ID              	Elevation   	InitLevel   	MinLevel    	MaxLevel    	Diameter    	MinVol      	VolCurve
 
 [PIPES]
 ;ID              	Node1           	Node2           	Length      	Diameter    	Roughness   	MinorLoss   	Status
- 1               	1               	2               	100         	800.0       	130         	0           	open  	;	
- 2               	2               	3               	1350        	800.0       	130         	0           	open  	;
- 3               	3               	4               	900         	800.0       	130         	0           	open  	;
- 4               	4               	5               	1150        	800.0       	130         	0           	open  	;
- 5               	5               	6               	1450        	800.0       	130         	0           	open  	;
- 6               	6               	7               	450         	800.0       	130         	0           	open  	;
- 7               	7               	8               	850         	800.0       	130         	0           	open  	;
- 8               	8               	9               	850         	800.0       	130         	0           	open  	;
- 9               	9               	10              	800         	800.0       	130         	0           	open  	;
- 10              	10              	11              	950         	800.0       	130         	0           	open  	;
- 11              	11              	12              	1200        	800.0       	130         	0           	open  	;
- 12              	12              	13              	3500        	800.0       	130         	0           	open  	;
- 13              	10              	14              	800         	800.0       	130         	0           	open  	;
- 14              	14              	15              	500         	800.0       	130         	0           	open  	;
- 15              	15              	16              	550         	800.0       	130         	0           	open  	;
- 16              	17              	16              	2730        	800.0       	130         	0           	open  	;
- 17              	18              	17              	1750        	800.0       	130         	0           	open  	;
- 18              	19              	18              	800         	800.0       	130         	0           	open  	;
- 19              	3               	19              	400         	800.0       	130         	0           	open  	;
- 20              	3               	20              	2200        	800.0       	130         	0           	open  	;
- 21              	20              	21              	1500        	800.0       	130         	0           	open  	;
- 22              	21              	22              	500         	800.0       	130         	0           	open  	;
- 23              	20              	23              	2650        	800.0       	130         	0           	open  	;
- 24              	23              	24              	1230        	800.0       	130         	0           	open  	;
- 25              	24              	25              	1300        	800.0       	130         	0           	open  	;
- 26              	26              	25              	850         	800.0       	130         	0           	open  	;
- 27              	27              	26              	300         	800.0       	130         	0           	open  	;
- 28              	16              	27              	750         	800.0       	130         	0           	open  	;
- 29              	23              	28              	1500        	800.0       	130         	0           	open  	;
- 30              	28              	29              	2000        	800.0       	130         	0           	open  	;
- 31              	29              	30              	1600        	800.0       	130         	0           	open  	;
- 32              	30              	31              	150         	800.0       	130         	0           	open  	;
- 33              	32              	31              	860         	800.0       	130         	0           	open  	;
- 34              	25              	32              	950         	800.0       	130         	0           	open  	; 
+ 1               	1               	2               	100         	800         	130         	0           	open  	;	
+ 2               	2               	3               	1350        	800         	130         	0           	open  	;
+ 3               	3               	4               	900         	800         	130         	0           	open  	;
+ 4               	4               	5               	1150        	800         	130         	0           	open  	;
+ 5               	5               	6               	1450        	800         	130         	0           	open  	;
+ 6               	6               	7               	450         	800         	130         	0           	open  	;
+ 7               	7               	8               	850         	800         	130         	0           	open  	;
+ 8               	8               	9               	850         	800         	130         	0           	open  	;
+ 9               	9               	10              	800         	800         	130         	0           	open  	;
+ 10              	10              	11              	950         	800         	130         	0           	open  	;
+ 11              	11              	12              	1200        	800         	130         	0           	open  	;
+ 12              	12              	13              	3500        	800         	130         	0           	open  	;
+ 13              	10              	14              	800         	800         	130         	0           	open  	;
+ 14              	14              	15              	500         	800         	130         	0           	open  	;
+ 15              	15              	16              	550         	800         	130         	0           	open  	;
+ 16              	17              	16              	2730        	800         	130         	0           	open  	;
+ 17              	18              	17              	1750        	800         	130         	0           	open  	;
+ 18              	19              	18              	800         	800         	130         	0           	open  	;
+ 19              	3               	19              	400         	800         	130         	0           	open  	;
+ 20              	3               	20              	2200        	800         	130         	0           	open  	;
+ 21              	20              	21              	1500        	800         	130         	0           	open  	;
+ 22              	21              	22              	500         	800         	130         	0           	open  	;
+ 23              	20              	23              	2650        	800         	130         	0           	open  	;
+ 24              	23              	24              	1230        	800         	130         	0           	open  	;
+ 25              	24              	25              	1300        	800         	130         	0           	open  	;
+ 26              	26              	25              	850         	800         	130         	0           	open  	;
+ 27              	27              	26              	300         	800         	130         	0           	open  	;
+ 28              	16              	27              	750         	800         	130         	0           	open  	;
+ 29              	23              	28              	1500        	800         	130         	0           	open  	;
+ 30              	28              	29              	2000        	800         	130         	0           	open  	;
+ 31              	29              	30              	1600        	800         	130         	0           	open  	;
+ 32              	30              	31              	150         	800         	130         	0           	open  	;
+ 33              	32              	31              	860         	800         	130         	0           	open  	;
+ 34              	25              	32              	950         	800         	130         	0           	open  	; 
 
 [PUMPS]
 ;ID              	Node1           	Node2           	Parameters
@@ -155,12 +147,16 @@ Pressure Flow Based Algorithms for Pressure-Driven Analysis of Water Distributio
  Statistic          	NONE
 
 [REPORT]
- Status             	Full
+ Status             	No
  Summary            	No
  Page               	0
 
 [OPTIONS]
- Units              	CMH
+ Units               	CMH
+ ;Flow Units           	CMH
+ ;Demand Model           LOGISTIC  ;FIXED  ;PRESSURE_DEFICIENT
+ ;Full Pressure          50
+ ;Minimum Pressure       10
  Headloss           	H-W
  Specific Gravity   	1
  Viscosity          	1
@@ -171,59 +167,55 @@ Pressure Flow Based Algorithms for Pressure-Driven Analysis of Water Distributio
  DAMPLIMIT          	0
  Unbalanced         	Continue 10
  Pattern            	1
- Demand Multiplier  	1.0
- Demand Model       	PDA
- Minimum Pressure   	0.0
- Required Pressure  	20.0
- Pressure Exponent  	0.5
+ Demand Multiplier  	0.75
  Emitter Exponent   	0.5
  Quality            	NONE mg/L
  Diffusivity        	1
  Tolerance          	0.01
 
 [COORDINATES]
-;Node            	X-Coord           	Y-Coord
-2               	5021.200          	1582.170          
-3               	5025.200          	2585.420          
-4               	5874.220          	2588.300          
-5               	6873.110          	2588.300          
-6               	8103.510          	2585.420          
-7               	8103.510          	3234.670          
-8               	8106.660          	4179.280          
-9               	8106.660          	5133.780          
-10              	7318.640          	5133.780          
-11              	7319.940          	5831.650          
-12              	7319.940          	6671.190          
-13              	5636.760          	6676.240          
-14              	6530.630          	5133.780          
-15              	5676.020          	5133.780          
-16              	5021.200          	5133.780          
-17              	5021.200          	4412.360          
-18              	5021.200          	3868.520          
-19              	5021.200          	3191.490          
-20              	3587.870          	2588.300          
-21              	3587.870          	1300.840          
-22              	3587.870          	901.290           
-23              	1978.550          	2588.300          
-24              	1975.580          	4084.350          
-25              	1980.460          	5137.630          
-26              	3077.460          	5137.630          
-27              	3933.520          	5133.780          
-28              	846.040           	2588.200          
-29              	-552.410          	2588.200          
-30              	-552.380          	4369.060          
-31              	-549.360          	5137.630          
-32              	536.450           	5137.630          
-1               	5360.710          	1354.050          
+;Node            	X-Coord         	Y-Coord
+ 2               	5021.20         	1582.17         
+ 3               	5025.20         	2585.42         
+ 4               	5874.22         	2588.30         
+ 5               	6873.11         	2588.30         
+ 6               	8103.51         	2585.42         
+ 7               	8103.51         	3234.67         
+ 8               	8106.66         	4179.28         
+ 9               	8106.66         	5133.78         
+ 10              	7318.64         	5133.78         
+ 11              	7319.94         	5831.65         
+ 12              	7319.94         	6671.19         
+ 13              	5636.76         	6676.24         
+ 14              	6530.63         	5133.78         
+ 15              	5676.02         	5133.78         
+ 16              	5021.20         	5133.78         
+ 17              	5021.20         	4412.36         
+ 18              	5021.20         	3868.52         
+ 19              	5021.20         	3191.49         
+ 20              	3587.87         	2588.30         
+ 21              	3587.87         	1300.84         
+ 22              	3587.87         	901.29          
+ 23              	1978.55         	2588.30         
+ 24              	1975.58         	4084.35         
+ 25              	1980.46         	5137.63         
+ 26              	3077.46         	5137.63         
+ 27              	3933.52         	5133.78         
+ 28              	846.04          	2588.20         
+ 29              	-552.41         	2588.20         
+ 30              	-552.38         	4369.06         
+ 31              	-549.36         	5137.63         
+ 32              	536.45          	5137.63         
+ 1               	5360.71         	1354.05         
 
 [VERTICES]
-;Link            	X-Coord           	Y-Coord
+;Link            	X-Coord         	Y-Coord
 
 [LABELS]
-;X-Coord             Y-Coord             Label & Anchor Node
+;X-Coord           Y-Coord          Label & Anchor Node
 
 [BACKDROP]
-  DIMENSIONS  	-985.920          	612.540           	8551.270          	6964.990          
+ DIMENSIONS     	-985.92         	612.54          	8551.27         	6964.99         
  UNITS          	None
  FILE           	
  OFFSET         	0.00            	0.00            

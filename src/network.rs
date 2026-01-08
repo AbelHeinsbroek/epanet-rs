@@ -1,8 +1,13 @@
 use hashbrown::HashMap;
 
-pub const UCF_Q: f64 = 0.009809629503517; // Unit conversion factor for flow (m3/h to cfs)
-pub const UCF_H: f64 = 3.2808399; // Unit conversion factor for head (m to ft)
-pub const UCF_D: f64 = 0.0032808399; // Unit conversion factor for diameter (mm to ft)
+// pub const UCF_Q: f64 = 0.009809629503517; // Unit conversion factor for flow (m3/h to cfs)
+// pub const UCF_H: f64 = 3.2808399; // Unit conversion factor for head (m to ft)
+// pub const UCF_D: f64 = 0.0032808399; // Unit conversion factor for diameter (mm to ft)
+pub const UCF_Q: f64 = 1.0;
+pub const UCF_H: f64 = 1.0;
+pub const UCF_D: f64 = 1.0 / 12.0;
+
+pub const H_EXPONENT: f64 = 1.852; // Hazen-Williams exponent
 
 #[derive(Default)]
 pub struct Network {
@@ -90,3 +95,23 @@ pub struct Link {
 
   pub csc_index: CSCIndex,
 }
+
+impl Link {
+  /// Calculate the 1/G_ij and Y_ij coefficients for the link
+  pub fn coefficients(&self, ) -> (f64, f64) {
+    let q = self.result.flow;
+    let q_abs = q.abs().max(1e-8);
+    let r = self.resistance;
+    let m = 0.0; // minor loss coefficient
+    let n = H_EXPONENT;
+
+    let g = n * r * q_abs.powf(n - 1.0) + 2.0 * m * q_abs;
+    let g_inv = 1.0 / g;
+
+    let y = (r * q_abs.powf(n) + m * q_abs.powf(2.0)) * q.signum();
+
+    (g_inv, y)
+  }
+}
+
+

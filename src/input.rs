@@ -9,6 +9,7 @@ enum ReadState {
   Pipes,
   Reservoirs,
   Demands,
+  Valves,
   None,
 }
 
@@ -44,6 +45,7 @@ impl Network {
           "[PIPES]" => ReadState::Pipes,
           "[RESERVOIRS]" => ReadState::Reservoirs,
           "[DEMANDS]" => ReadState::Demands,
+          "[VALVES]" => ReadState::Valves,
           _ => ReadState::None,
         }
       }
@@ -67,6 +69,28 @@ impl Network {
               node_type: NodeType::Junction { basedemand: demand },
               result: NodeResult::default(),
             }).unwrap();
+          }
+          ReadState::Valves => {
+            let id = parts[0].trim().into();
+            // read the start node
+            let start_node: Box<str> = parts[1].trim().into();
+            // read the end node
+            let end_node: Box<str> = parts[2].trim().into();
+            // read the diameter
+            let diameter = parts[3].parse::<f64>().unwrap() * UCF_D;
+            // create the link
+            let start_node_index = *network.node_map.get(&start_node).unwrap();
+            let end_node_index = *network.node_map.get(&end_node).unwrap();
+
+            let _ = network.add_link(Link {
+              id,
+              start_node: start_node_index,
+              end_node: end_node_index,
+              link_type: LinkType::Pipe { diameter, length: 100.0, roughness: 1.0 },
+              resistance: 0.0,
+              result: LinkResult::default(),
+              csc_index: CSCIndex::default()
+            });
           }
           ReadState::Pipes => {
             let id = parts[0].trim().into();
@@ -98,7 +122,6 @@ impl Network {
             let id = parts[0].trim().into();
             // read the elevation
             let elevation = parts[1].parse::<f64>().unwrap() * UCF_H;
-            println!("Elevation of reservoir {} = {}", id, elevation);
             // add the node to the network
             let _ = network.add_node(Node {
               id,

@@ -7,21 +7,10 @@ use std::time::Instant;
 
 use crate::network::*;
 
-const MAX_ITER: usize = 10;
+const MAX_ITER: usize = 200;
 const CONVERGENCE_TOL: f64 = 1e-3;
 
 const H_EXPONENT: f64 = 1.852; // Hazen-Williams exponent
-
-// impl Link {
-//   pub fn update_resistance(&mut self) {
-//     match self.link_type {
-//       LinkType::Pipe { diameter, length, roughness } => {
-//         self.resistance = A1 * length / ((diameter/1000.0).powf(4.87) * roughness.powf(H_EXPONENT));
-//       }
-//       _ => (),
-//     }
-//   }
-// }
 
 impl Network {
   /// Solve the network using the Global Gradient Algorithm (Todini & Pilati, 1987)
@@ -79,7 +68,7 @@ impl Network {
 
     let mut jac = SparseColMat::new(sparsity_pattern.clone(), values.clone());
 
-    for _ in 1..=MAX_ITER {
+    for iteration in 1..=MAX_ITER {
       // reset values and rhs
       values.fill(0.0);
       rhs.fill(0.0);
@@ -94,17 +83,7 @@ impl Network {
       // assemble Jacobian and RHS contributions from links
       for link in self.links.iter() {
         let q = link.result.flow;
-        let q_abs = q.abs().max(1e-8);
-        let r = link.resistance;
-        let m = 0.0; // minor loss coefficient (0 for now)
-        let n = H_EXPONENT;
-
-        // Calculate head loss gradient (g_ij) - EPANET Eq. 12.8
-        let g = n * r * q_abs.powf(n - 1.0) + 2.0 * m * q_abs;
-        let g_inv = 1.0 / g;
-        
-        // Calculate head loss (h_Lij) - EPANET Eq. 12.1
-        let y = (r * q_abs.powf(n) + m * q_abs.powf(2.0)) * q.signum();
+        let (g_inv, y) = link.coefficients();
 
         // Get the CSC indices for the start and end nodes
         let u = node_to_unknown[link.start_node];
@@ -171,6 +150,7 @@ impl Network {
       }
 
       let rel_change = sum_dq / (sum_q + 1e-6);
+      println!("Iteration {} relative change = {:.4}", iteration, rel_change);
 
       if rel_change < CONVERGENCE_TOL {
         return Ok(());
