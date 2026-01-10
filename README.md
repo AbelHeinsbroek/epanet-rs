@@ -1,6 +1,6 @@
 # EPANET-RS
 
-An *extremely* fast re-implementation of the EPANET2 hydraulic solver, written in Rust
+A very fast, modern and *safe* re-implementation of the EPANET2 hydraulic solver, written in Rust
 
 ## Usage
 
