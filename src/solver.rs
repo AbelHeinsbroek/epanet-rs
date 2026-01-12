@@ -5,6 +5,7 @@ use faer::{Mat, Side};
 use faer::prelude::*;
 
 use rayon::prelude::*;
+use rand::prelude::*;
 
 use crate::network::*;
 
@@ -13,72 +14,55 @@ const CONVERGENCE_TOL: f64 = 0.01;
 
 const H_EXPONENT: f64 = 1.852; // Hazen-Williams exponent
 
-impl Network {
-  /// Solve the network using the Global Gradient Algorithm (Todini & Pilati, 1987) for a single time step
-  /// 
-  /// The following steps are performed:
-  /// 1. Build global unknown-numbering map
-  /// 2. Build sparsity pattern (symbolic phase)
-  /// 3. Map each pipe to its CSC indices
-  /// 4. Update the resistance of all links
-  /// 5. Set demand for unknown nodes
-  /// 
-  pub fn run(&mut self, parallel: bool) {
+/// CSC (Compressed Sparse Column) indices for the Jacobian matrix used in the Global Gradient Algorithm
+#[derive(Default)]
+pub struct CSCIndex {
+  pub diag_u: Option<usize>,      // CSC index for J[u,u]
+  pub diag_v: Option<usize>,      // CSC index for J[v,v]
+  pub off_diag_uv: Option<usize>, // CSC index for J[u,v]
+  pub off_diag_vu: Option<usize>, // CSC index for J[v,u]
+}
+
+pub struct HydraulicSolver<'a> {
+  network: &'a Network, 
+  node_to_unknown: Vec<Option<usize>>,
+  sparsity_pattern: SymbolicSparseColMat<usize>,
+  symbolic_llt: SymbolicLlt<usize>,
+  jac: SparseColMat<usize, f64>,
+  csc_indices: Vec<CSCIndex>,
+}
+
+impl<'a> HydraulicSolver<'a> {
+
+  pub fn new(network: &'a Network) -> Self {
     // build global unknown-numbering map
-    let node_to_unknown = self.build_unknown_numbering_map();
-
+    let node_to_unknown = Self::build_unknown_numbering_map(network);
     // generate sparsity pattern
-    let sparsity_pattern = self.build_sparsity_pattern(&node_to_unknown);
-
+    let sparsity_pattern = Self::build_sparsity_pattern(network, &node_to_unknown);
     // map each link to its CSC (Compressed Sparse Column) indices
-    self.map_links_to_csc_indices(&sparsity_pattern, &node_to_unknown);
+    let csc_indices = Self::map_links_to_csc_indices(network, &sparsity_pattern, &node_to_unknown);
 
+    // compute the Jacobian matrix
     let values = vec![0.0; sparsity_pattern.as_ref().row_idx().len()]; // Jacobian matrix values
     let jac = SparseColMat::new(sparsity_pattern.clone(), values.clone());
 
-    let symbolic_llt = SymbolicLlt::try_new(jac.symbolic(), Side::Lower)
-      .expect("Failed to compute symbolic Cholesky factorization");
+    // compute the symbolic Cholesky factorization
+    let symbolic_llt = SymbolicLlt::try_new(jac.symbolic(), Side::Lower).expect("Failed to compute symbolic Cholesky factorization");
 
-    let steps = 24*4;
-
-    let mut flows: Vec<Vec<f64>> = vec![vec![0.0; self.links.len()]; steps];
-    let mut heads: Vec<Vec<f64>> = vec![vec![0.0; self.nodes.len()]; steps];
-
-
-    if parallel {
-      // do parallel solve with Rayon
-      let results: Vec<(Vec<f64>, Vec<f64>)> = (0..steps).into_par_iter().map(|step| {
-        self.solve(&node_to_unknown, &sparsity_pattern, &symbolic_llt, &jac).unwrap()
-      }).collect();
-      for (step, (flow, head)) in results.iter().enumerate() {
-        flows[step] = flow.clone();
-        heads[step] = head.clone();
-      }
-
-    } else {
-      // do sequential solves
-      for step in 0..steps {
-        let (flow, head) = self.solve(&node_to_unknown, &sparsity_pattern, &symbolic_llt, &jac).unwrap();
-        flows[step] = flow;
-        heads[step] = head;
-      }
-    }
-
-    // assign the flows and heads to the links and nodes
-    for (i, link) in self.links.iter_mut().enumerate() {
-      link.result.flow = flows[0][i];
-    }
-    for (i, node) in self.nodes.iter_mut().enumerate() {
-      node.result.head = heads[0][i];
-    }
-
-
+    Self { network, node_to_unknown, sparsity_pattern, symbolic_llt, jac, csc_indices }
   }
 
-  pub fn solve(&self, node_to_unknown: &Vec<Option<usize>>, sparsity_pattern: &SymbolicSparseColMat<usize>, symbolic_llt: &SymbolicLlt<usize>, jac: &SparseColMat<usize, f64>) -> Result<(Vec<f64>, Vec<f64>), String> {
+  /// Run the hydraulic solver
+  pub fn run(self, parallel: bool) {
+    
+    let steps = 24*4;
 
-    // initialize the flows and heads
-    let mut flows: Vec<f64> = self.links.iter().map(|l| {
+    // initialize the flows and heads result vectors
+    let mut flows: Vec<Vec<f64>> = vec![vec![0.0; self.network.links.len()]; steps];
+    let mut heads: Vec<Vec<f64>> = vec![vec![0.0; self.network.nodes.len()]; steps];
+
+    // set the initial flows and heads
+    let mut initial_flows: Vec<f64> = self.network.links.iter().map(|l| {
       if let LinkType::Pipe { diameter, .. } = l.link_type {
         let area = 0.25 * std::f64::consts::PI * diameter.powi(2);
         let velocity = 1.0;
@@ -89,8 +73,8 @@ impl Network {
       }
     }).collect::<Vec<f64>>();
 
-    // initialize the heads
-    let mut heads: Vec<f64> = self.nodes.iter().map(|n| {
+    // set the initial heads
+    let mut initial_heads: Vec<f64> = self.network.nodes.iter().map(|n| {
       if n.is_fixed() {
         return n.elevation;
       } else {
@@ -98,16 +82,55 @@ impl Network {
       }
     }).collect::<Vec<f64>>();
 
+
+    // run the solver in parallel if enabled
+    if parallel {
+
+      let (flow, head) = self.solve(&initial_flows, &initial_heads, 0).unwrap();
+
+      flows[0] = flow.clone();
+      heads[0] = head.clone();
+      initial_flows = flow;
+      initial_heads = head;
+
+      // do parallel solve with Rayon
+      let results: Vec<(Vec<f64>, Vec<f64>)> = (1..steps).into_par_iter().map(|step| {
+        self.solve(&initial_flows, &initial_heads, step).unwrap()
+      }).collect();
+      for (step, (flow, head)) in results.iter().enumerate() {
+        flows[step] = flow.clone();
+        heads[step] = head.clone();
+      }
+
+    } else {
+      // do sequential solves
+      for step in 0..steps {
+        let (flow, head) = self.solve(&initial_flows, &initial_heads, step).unwrap();
+        flows[step] = flow.clone();
+        heads[step] = head.clone();
+        initial_flows = flow;
+        initial_heads = head;
+      }
+    }
+  }
+
+  /// Solve the network using the Global Gradient Algorithm (Todini & Pilati, 1987) for a single step
+  /// Returns the flows and heads
+  fn solve(&self, initial_flows: &Vec<f64>, initial_heads: &Vec<f64>, step: usize) -> Result<(Vec<f64>, Vec<f64>), String> {
+
+    let mut flows = initial_flows.clone();
+    let mut heads = initial_heads.clone();
+
     // gather demands
-    let demands: Vec<f64> = self.nodes.iter().map(|n| {
+    let demands: Vec<f64> = self.network.nodes.iter().map(|n| {
       if let NodeType::Junction { basedemand } = n.node_type {
-        return basedemand;
+        return basedemand + 0.1 * step as f64;
       } else {
         return 0.0;
       }
     }).collect::<Vec<f64>>();
 
-    let resistances: Vec<f64> = self.links.iter().map(|l| {
+    let resistances: Vec<f64> = self.network.links.iter().map(|l| {
       if let LinkType::Pipe { diameter, length, roughness } = l.link_type {
         return 4.727 * roughness.powf(-1.852) * diameter.powf(-4.87) * length;
       } else {
@@ -121,14 +144,14 @@ impl Network {
     // A is a sparse matrix, so we use the Compressed Sparse Column (CSC) format to store it
     // h is the vector of heads, and rhs is the vector of right-hand side values
 
-    let unknown_nodes = node_to_unknown.iter().filter(|&x| x.is_some()).count();
+    let unknown_nodes = self.node_to_unknown.iter().filter(|&x| x.is_some()).count();
 
-    let mut values = vec![0.0; sparsity_pattern.as_ref().row_idx().len()]; // Jacobian matrix values
+    let mut values = vec![0.0; self.sparsity_pattern.as_ref().row_idx().len()]; // Jacobian matrix values
     let mut rhs = vec![0.0; unknown_nodes]; // (unknown nodes only)
 
-    let mut g_invs: Vec<f64> = vec![0.0; self.links.len()];
-    let mut ys: Vec<f64> = vec![0.0; self.links.len()];
-    let mut jac = jac.clone();
+    let mut g_invs: Vec<f64> = vec![0.0; self.network.links.len()];
+    let mut ys: Vec<f64> = vec![0.0; self.network.links.len()];
+    let mut jac = self.jac.clone();
 
     for iteration in 1..=MAX_ITER {
       // reset values and rhs
@@ -136,44 +159,45 @@ impl Network {
       rhs.fill(0.0);
 
       // set RHS to -demand (unknown nodes only)
-      for (global, &head_id) in node_to_unknown.iter().enumerate() {
+      for (global, &head_id) in self.node_to_unknown.iter().enumerate() {
         if let Some(i) = head_id {
           rhs[i] = -demands[global];
         }
       }
 
       // clone the symbolic LLT to avoid borrowing issues
-      let symbolic_llt = symbolic_llt.clone();
+      let symbolic_llt = self.symbolic_llt.clone();
 
       // assemble Jacobian and RHS contributions from links
-      for (i, link) in self.links.iter().enumerate() {
+      for (i, link) in self.network.links.iter().enumerate() {
         let q = flows[i];
+        let csc_index = &self.csc_indices[i];
         let (g_inv, y) = link.coefficients(q, resistances[i]);
 
         g_invs[i] = g_inv;
         ys[i] = y;
 
         // Get the CSC indices for the start and end nodes
-        let u = node_to_unknown[link.start_node];
-        let v = node_to_unknown[link.end_node];
+        let u = self.node_to_unknown[link.start_node];
+        let v = self.node_to_unknown[link.end_node];
 
         if let Some(i) = u {
-            values[link.csc_index.diag_u.unwrap()] += g_inv;
+            values[csc_index.diag_u.unwrap()] += g_inv;
             rhs[i] -= q - (y * g_inv);
-            if self.nodes[link.end_node].is_fixed() {
+            if self.network.nodes[link.end_node].is_fixed() {
               rhs[i] += g_inv * heads[link.end_node];
             }
         }
         if let Some(j) = v {
-            values[link.csc_index.diag_v.unwrap()] += g_inv;
+            values[csc_index.diag_v.unwrap()] += g_inv;
             rhs[j] += q - (y * g_inv);
-            if self.nodes[link.start_node].is_fixed() {
+            if self.network.nodes[link.start_node].is_fixed() {
               rhs[j] += g_inv * heads[link.start_node];
             }
         }
         if let (Some(_i), Some(_j)) = (u, v) {
-            values[link.csc_index.off_diag_uv.unwrap()] -= g_inv;
-            values[link.csc_index.off_diag_vu.unwrap()] -= g_inv;
+            values[csc_index.off_diag_uv.unwrap()] -= g_inv;
+            values[csc_index.off_diag_vu.unwrap()] -= g_inv;
         }
       }
 
@@ -188,7 +212,7 @@ impl Network {
       let dh = llt.solve(&Mat::from_fn(unknown_nodes, 1, |r, _| rhs[r]));
 
       // update the heads of the nodes
-      for (global, &head_id) in node_to_unknown.iter().enumerate() {
+      for (global, &head_id) in self.node_to_unknown.iter().enumerate() {
         if let Some(i) = head_id {
           heads[global] = dh[(i, 0)];
         }
@@ -198,7 +222,7 @@ impl Network {
       let mut sum_dq = 0.0;
       let mut sum_q  = 0.0;
 
-      for (i, link) in self.links.iter().enumerate() {
+      for (i, link) in self.network.links.iter().enumerate() {
           // calculate the head difference between the start and end nodes
           let dh = heads[link.start_node] - heads[link.end_node];
 
@@ -220,6 +244,23 @@ impl Network {
       // println!("Iteration {} relative change = {:.4}", iteration, rel_change);
 
       if rel_change < CONVERGENCE_TOL {
+
+        let sum_demand: f64 = demands.iter().sum();
+
+        let supply: f64 = self.network.links.iter().enumerate().map(|(i, l)| {
+          if !matches!(self.network.nodes[l.end_node].node_type, NodeType::Junction { .. }) {
+            -flows[i]
+          } 
+          else if !matches!(self.network.nodes[l.start_node].node_type, NodeType::Junction { .. }) {
+            flows[i]
+          }
+          else {
+            0.0
+          }
+        }).sum();
+
+        println!("Converged in {} iterations: Error = {:.4}, Supply = {:.4}, Demand = {:.4}", iteration, (sum_demand - supply).abs(), supply, sum_demand);
+
         return Ok((flows, heads));
       }
     }
@@ -227,8 +268,10 @@ impl Network {
   }
 
   /// Map each link to its CSC (Compressed Sparse Column) indices
-  fn map_links_to_csc_indices(&mut self, sparsity_pattern: &SymbolicSparseColMat<usize>, node_to_unknown: &Vec<Option<usize>>) {
-    for link in self.links.iter_mut() {
+  fn map_links_to_csc_indices(network: &Network, sparsity_pattern: &SymbolicSparseColMat<usize>, node_to_unknown: &Vec<Option<usize>>) -> Vec<CSCIndex> {
+
+    let mut csc_indices = Vec::with_capacity(network.links.len());
+    for link in network.links.iter() {
       let mut csc_index = CSCIndex::default();
       let u = node_to_unknown[link.start_node];
       let v = node_to_unknown[link.end_node];
@@ -240,18 +283,19 @@ impl Network {
           csc_index.off_diag_uv = find_csc_index(sym, i, j);
           csc_index.off_diag_vu = find_csc_index(sym, j, i);
       }
-      link.csc_index = csc_index;
+      csc_indices.push(csc_index);
     }
+    csc_indices
   }
 
   /// Build sparsity pattern
   /// 
-  fn build_sparsity_pattern(&self, node_to_unknown: &Vec<Option<usize>>) -> SymbolicSparseColMat<usize> {
+  fn build_sparsity_pattern(network: &Network, node_to_unknown: &Vec<Option<usize>>) -> SymbolicSparseColMat<usize> {
     let n_unknowns = node_to_unknown.iter().filter(|&x| x.is_some()).count();
 
     // Pre-allocate: at most 4 triplets per link (2 diagonal + 2 off-diagonal)
-    let mut triplets = Vec::with_capacity(4 * self.links.len());
-    for link in self.links.iter() {
+    let mut triplets = Vec::with_capacity(4 * network.links.len());
+    for link in network.links.iter() {
       let u = node_to_unknown[link.start_node]; // u is the index of the start node (None if unknown)
       let v = node_to_unknown[link.end_node]; // v is the index of the end node (None if unknown)
       // diagonal elements (self-connectivity)
@@ -271,9 +315,9 @@ impl Network {
   }
 
   /// Build global unknown-numbering map
-  fn build_unknown_numbering_map(&self) -> Vec<Option<usize>> {
+  fn build_unknown_numbering_map(network: &Network) -> Vec<Option<usize>> {
     let mut unknown_id = 0;
-    let node_to_unknown: Vec<Option<usize>> = self.nodes
+    let node_to_unknown: Vec<Option<usize>> = network.nodes
         .iter()
         .map(|n| if matches!(n.node_type, NodeType::Junction { .. }) { let id = unknown_id; unknown_id += 1; Some(id) } else { None })
         .collect();

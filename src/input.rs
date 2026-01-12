@@ -74,7 +74,6 @@ impl Network {
               elevation,
               demand: 0.0,
               node_type: NodeType::Junction { basedemand: demand },
-              result: NodeResult::default(),
             }).unwrap();
           }
           ReadState::Valves => {
@@ -117,11 +116,6 @@ impl Network {
               end_node: end_node_index,
               link_type: LinkType::Valve { diameter, setting, curve: curve_id, valve_type },
               minor_loss: minor_loss,
-              resistance: 0.0,
-              result: LinkResult::default(),
-              csc_index: CSCIndex::default(),
-              g_inv: 0.0,
-              y: 0.0,
             });
           }
           ReadState::Pipes => {
@@ -136,7 +130,6 @@ impl Network {
             let diameter = parts.next().unwrap().parse::<f64>().unwrap() * UCF_D;
             // read the roughness
             let roughness = parts.next().unwrap().parse::<f64>().unwrap();
-            let roughness = 100.0;
 
             // create the link
             let minor_loss = parts.next().unwrap().parse::<f64>().unwrap_or(0.0);
@@ -150,13 +143,8 @@ impl Network {
               id,
               start_node: start_node_index,
               end_node: end_node_index,
-              resistance: 0.0,
               minor_loss: minor_loss,
               link_type: LinkType::Pipe { diameter, length, roughness },
-              result: LinkResult::default(),
-              csc_index: CSCIndex::default(),
-              g_inv: 0.0,
-              y: 0.0
             });
           }
           ReadState::Reservoirs => {
@@ -169,7 +157,6 @@ impl Network {
               elevation,
               demand: 0.0,
               node_type: NodeType::Reservoir,
-              result: NodeResult::default(),
             });
           }
           ReadState::Pumps => {
@@ -211,12 +198,7 @@ impl Network {
               start_node: start_node_index,
               end_node: end_node_index,
               minor_loss: 0.0,
-              resistance: 0.0,
               link_type: LinkType::Pump { speed, head_curve, power },
-              result: LinkResult::default(),
-              csc_index: CSCIndex::default(),
-              g_inv: 0.0,
-              y: 0.0,
             });
 
           }

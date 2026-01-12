@@ -92,7 +92,7 @@
 ;Tank            	Model
 
 [TIMES]
- Duration           	0:00 
+ Duration           	24:00 
  Hydraulic Timestep 	1:00 
  Quality Timestep   	0:05 
  Pattern Timestep   	1:00 

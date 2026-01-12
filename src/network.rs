@@ -64,33 +64,12 @@ pub enum LinkType {
     Valve { diameter: f64, setting: f64, curve: Option<Box<str>>, valve_type: ValveType },
 }
 
-#[derive(Default)]
-pub struct NodeResult {
-  pub head: f64
-}
-
-#[derive(Default)]
-pub struct LinkResult {
-  pub flow: f64,
-}
-
-
-/// CSC (Compressed Sparse Column) indices for the Jacobian matrix used in the Global Gradient Algorithm
-#[derive(Default)]
-pub struct CSCIndex {
-  pub diag_u: Option<usize>,      // CSC index for J[u,u]
-  pub diag_v: Option<usize>,      // CSC index for J[v,v]
-  pub off_diag_uv: Option<usize>, // CSC index for J[u,v]
-  pub off_diag_vu: Option<usize>, // CSC index for J[v,u]
-}
-
 pub struct Node {
     pub id: Box<str>,
     pub node_type: NodeType,
     pub elevation: f64,
     pub demand: f64,
 
-    pub result: NodeResult,
 }
 impl Node {
   pub fn is_fixed(&self) -> bool {
@@ -104,15 +83,6 @@ pub struct Link {
   pub minor_loss: f64,
   pub start_node: usize,
   pub end_node: usize,
-
-  pub resistance: f64,
-
-  pub result: LinkResult,
-
-  pub csc_index: CSCIndex,
-
-  pub g_inv: f64,
-  pub y: f64,
 }
 
 impl Link {
