@@ -5,10 +5,11 @@
 - [x] Refactor network build from inp file, split logic into separate methods
 - [x] Refactor network, link and node setup, split into separate files and compute coefficients using traits
 - [x] Implement Darcy Weisbach
-- [-] Input file support for PATTERN, TIMES, OPTIONS
+- [x] Input file support for PATTERN, TIMES, OPTIONS
+- [] Support for PATTERNS in solve loop 
 - [] Implement unit conversion
 - [] Implement Valves and Pumps
 - [] Implement tank logic
-- [] Try to get the solver working for f32 in addition to f64 (SIMD speedup)
+- [] Try to get the solver working for f32 in addition to f64 (SIMD speedup?)
 - [] Setup unit testing
 - [] Setup automated benchmarks
