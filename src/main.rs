@@ -24,8 +24,10 @@ fn main() {
   println!("Loaded network with {} nodes and {} links", network.nodes.len(), network.links.len());
   println!("Network loaded in {:?}", end_time.duration_since(start_time));
 
+  let start_time = Instant::now();
   let solver = HydraulicSolver::new(&network);
   let result = solver.run(parallel);
+  let end_time = Instant::now();
   println!("Solver finished in {:?}", end_time.duration_since(start_time));
   // println!("Heads: {:?}", result.heads[0].iter().map(|h| format!("{:.2}", h)).collect::<Vec<String>>().join(", "));
   // println!("Flows: {:?}", result.flows[0].iter().map(|f| format!("{:.2}", f)).collect::<Vec<String>>().join(", "));
