@@ -9,15 +9,26 @@ use rayon::prelude::*;
 use crate::model::node::NodeType;
 use crate::model::link::{LinkType, LinkTrait};
 use crate::model::network::Network;
-use crate::model::options::HeadlossFormula;
-
-
-const MAX_ITER: usize = 200;
-const CONVERGENCE_TOL: f64 = 0.01;
+use crate::model::units::{FlowUnits, PressureUnits};
 
 pub struct SolverResult {
   pub flows: Vec<Vec<f64>>,
   pub heads: Vec<Vec<f64>>
+}
+impl SolverResult {
+  // convert the solver units back to the original units
+  pub fn convert_units(&mut self, flow_units: &FlowUnits, pressure_units: &PressureUnits) {
+    for flow in self.flows.iter_mut() {
+      for flow in flow.iter_mut() {
+        *flow = *flow * flow_units.per_cfs();
+      }
+    }
+    for head in self.heads.iter_mut() {
+      for head in head.iter_mut() {
+        *head = *head * pressure_units.per_feet();
+      }
+    }
+  }
 }
 
 pub struct FlowBalance {
@@ -81,6 +92,7 @@ impl<'a> HydraulicSolver<'a> {
     let mut initial_heads: Vec<f64> = self.get_initial_heads();
 
 
+
     // run the solver in parallel using Rayon if enabled
     if parallel {
 
@@ -114,24 +126,40 @@ impl<'a> HydraulicSolver<'a> {
         initial_heads = head;
       }
     }
-    SolverResult { flows, heads }
+    let mut result = SolverResult { flows, heads };
+    // convert the units back to the original units
+    result.convert_units(&self.network.options.flow_units, &self.network.options.pressure_units);
+    result
   }
 
   /// Solve the network using the Global Gradient Algorithm (Todini & Pilati, 1987) for a single step
   /// Returns the flows and heads
   fn solve(&self, initial_flows: &Vec<f64>, initial_heads: &Vec<f64>, step: usize) -> Result<(Vec<f64>, Vec<f64>), String> {
 
+    let time_options = &self.network.options.time_options;
     let mut flows = initial_flows.clone();
     let mut heads = initial_heads.clone();
 
+
+    // get the time
+    let time = step * time_options.hydraulic_timestep;
+    // get the pattern time
+    let pattern_time = time_options.pattern_start + time;
+    // get pattern index
+    let pattern_index = pattern_time / time_options.pattern_timestep;
+
+    // apply the head pattern to reservoirs with a head pattern
+    for (i, node) in self.network.nodes.iter().enumerate() {
+      let Some(head_pattern) = node.head_pattern() else { continue };
+      let pattern = &self.network.patterns[head_pattern];
+      // TODO: FIX THIS TO USE THE CORRECT UNIT CONVERSION
+      heads[i] = pattern.multipliers[pattern_index % pattern.multipliers.len()] / 0.3048;
+      // println!("{}:{}", node.id, heads[i]);
+
+    }
+
     // gather demands
-    let demands: Vec<f64> = self.network.nodes.iter().map(|n| {
-      if let NodeType::Junction(junction) = &n.node_type {
-        return junction.basedemand + 0.1 * step as f64;
-      } else {
-        return 0.0;
-      }
-    }).collect::<Vec<f64>>();
+    let demands: Vec<f64> = self.get_demands(pattern_index);
 
     // calculate the resistances of the links
     let resistances: Vec<f64> = self.network.links.iter().map(|l| l.resistance()).collect::<Vec<f64>>();
@@ -151,7 +179,7 @@ impl<'a> HydraulicSolver<'a> {
     let mut ys: Vec<f64> = vec![0.0; self.network.links.len()];
     let mut jac = self.jac.clone();
 
-    for iteration in 1..=MAX_ITER {
+    for iteration in 1..=self.network.options.max_trials {
       // reset values and rhs
       values.fill(0.0);
       rhs.fill(0.0);
@@ -241,7 +269,7 @@ impl<'a> HydraulicSolver<'a> {
 
       let rel_change = sum_dq / (sum_q + 1e-6);
 
-      if rel_change < CONVERGENCE_TOL {
+      if rel_change < self.network.options.accuracy {
 
 
         let flow_balance = self.flow_balance(&demands, &flows);
@@ -251,7 +279,7 @@ impl<'a> HydraulicSolver<'a> {
         return Ok((flows, heads));
       }
     }
-    Err(format!("Maximum number of iterations reached: {}", MAX_ITER))
+    Err(format!("Maximum number of iterations reached: {}", self.network.options.max_trials))
   }
 
   /// Calculate the flow balance error
@@ -341,6 +369,29 @@ impl<'a> HydraulicSolver<'a> {
         return 0.0;
       }
     }).collect::<Vec<f64>>()
+  }
+
+  // get heads of the nodes for a given pattern index, for reservoirs with a head pattern, apply the pattern
+
+
+  /// Get the demands of the junctions for a given pattern index
+  fn get_demands(&self, pattern_index: usize) -> Vec<f64> {
+    let demands = self.network.nodes.iter().map(|n| {
+          if let NodeType::Junction(junction) = &n.node_type {
+            if let Some(pattern_id) = &junction.pattern {
+              // TODO: Can be improved to reduce hashmap lookups by storing the pattern index in the junction
+              let pattern = &self.network.patterns[pattern_id];
+              // get the multiplier for the pattern index (wrap around if needed)
+              let multiplier = pattern.multipliers[pattern_index % pattern.multipliers.len()];
+              return junction.basedemand * multiplier;
+            }
+            // if no pattern, return the basedemand
+            return junction.basedemand
+          } else {
+            return 0.0;
+          }
+        }).collect::<Vec<f64>>();
+    demands
   }
 
   /// Set the initial heads of the nodes

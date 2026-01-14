@@ -10,10 +10,11 @@ use crate::model::pattern::Pattern;
 use crate::model::junction::Junction;
 use crate::model::reservoir::Reservoir;
 use crate::model::pipe::{Pipe, PipeStatus};
-use crate::model::valve::{Valve, ValveType};
+use crate::model::pump::Pump;
+use crate::model::valve::{Valve, ValveType, ValveStatus};
+use crate::model::units::{FlowUnits, UnitSystem, PressureUnits, UnitConversion};
 use crate::model::options::*;
 // use crate::model::tank::Tank;
-use crate::model::pump::Pump;
 
 #[derive(Debug)]
 enum ReadState {
@@ -26,6 +27,7 @@ enum ReadState {
   Curves,
   Options,
   Patterns,
+  Status,
   Times,
   None,
 }
@@ -63,6 +65,7 @@ impl Network {
           "[CURVES]" => ReadState::Curves,
           "[PATTERNS]" => ReadState::Patterns,
           "[OPTIONS]" => ReadState::Options,
+          "[STATUS]" => ReadState::Status,
           "[TIMES]" => ReadState::Times,
           _ => ReadState::None,
         }
@@ -108,12 +111,31 @@ impl Network {
           ReadState::Times => {
             self.read_times(line);
           }
+          ReadState::Status => {
+            self.read_status(line);
+          }
         }
       }
       // clear the line buffer
       line_buffer.clear();
     }
+    // convert units
+    self.convert_units();
+
     Ok(())
+  }
+
+  /// convert units
+  fn convert_units(&mut self) {
+    // convert the nodes to standard units (US standard) and CFS
+    for node in self.nodes.iter_mut() {
+      node.convert_units(&self.options.flow_units, &self.options.unit_system, false);
+    }
+    // convert the links to standard units (US standard) and CFS
+    for link in self.links.iter_mut() {
+      link.convert_units(&self.options.flow_units, &self.options.unit_system, false);
+    }
+
   }
 
   /// Read a junction from a parts iterator
@@ -125,11 +147,17 @@ impl Network {
     let elevation = parts.next().unwrap().parse::<f64>().unwrap_or(0.0);
     // read the demand (optional, default 0.0)
     let demand = parts.next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+    // read the pattern (optional, default none)
+    let mut pattern: Option<Box<str>> = parts.next().map(|s| s.into());
+    // if pattern is not None and is ";", set it to None
+    if pattern.is_some() && pattern.clone().unwrap().contains(";") {
+      pattern = None;
+    }
 
     Node {
       id,
       elevation,
-      node_type: NodeType::Junction(Junction { basedemand: demand, pattern: None }),
+      node_type: NodeType::Junction(Junction { basedemand: demand, pattern: pattern }),
     }
   }
 
@@ -141,10 +169,16 @@ impl Network {
     // read the elevation
     let elevation = parts.next().unwrap().parse::<f64>().unwrap();
     // add the node to the network
+    let mut pattern: Option<Box<str>> = parts.next().map(|s| s.into());
+    // if pattern is not None and is ";", set it to None
+    if pattern.is_some() && pattern.clone().unwrap().contains(";") {
+      pattern = None;
+    }
+
     Node {
       id,
       elevation,
-      node_type: NodeType::Reservoir(Reservoir { head_pattern: None }),
+      node_type: NodeType::Reservoir(Reservoir { head_pattern: pattern }),
     }
   }
 
@@ -185,7 +219,7 @@ impl Network {
       id,
       start_node: start_node_index,
       end_node: end_node_index,
-      link_type: LinkType::Valve(Valve { diameter, setting, curve, valve_type }),
+      link_type: LinkType::Valve(Valve { diameter, setting, curve, valve_type, status: ValveStatus::Open }),
       minor_loss: minor_loss,
     }
   }
@@ -202,7 +236,7 @@ impl Network {
     // read the length
     let length = parts.next().unwrap().parse::<f64>().unwrap();
     // read the diameter
-    let diameter = parts.next().unwrap().parse::<f64>().unwrap() / 12.0; // FIX: 
+    let diameter = parts.next().unwrap().parse::<f64>().unwrap();
     // read the roughness
     let roughness = parts.next().unwrap().parse::<f64>().unwrap();
 
@@ -221,8 +255,6 @@ impl Network {
         _ => panic!("Invalid pipe status: {}", status_str),
       }
     }
-
-
 
     let start_node_index = *self.node_map.get(&start_node).unwrap();
     let end_node_index = *self.node_map.get(&end_node).unwrap();
@@ -310,7 +342,7 @@ impl Network {
     let id: Box<str> = parts.next().unwrap().into();
     let multipliers = parts.map(|s| s.parse::<f64>().unwrap()).collect();
     if !self.patterns.contains_key(&id) {
-      self.patterns.insert(id.clone(), Pattern { id, multipliers });
+      self.patterns.insert(id.clone(), Pattern { multipliers });
     }
     else {
       let pattern = self.patterns.get_mut(&id).unwrap();
@@ -324,11 +356,19 @@ impl Network {
 
     let id: Box<str> = parts.next().unwrap().into();
     let demand = parts.next().unwrap().parse::<f64>().unwrap();
+
+    // get pattern
+    let mut pattern: Option<Box<str>> = parts.next().map(|s| s.into());
+    if pattern.is_some() && pattern.clone().unwrap().contains(";") {
+      pattern = None;
+    }
+
     let node_index = *self.node_map.get(&id).unwrap();
     let node = &mut self.nodes[node_index];
     match &mut node.node_type {
       NodeType::Junction(junction) => {
         junction.basedemand = demand;
+        junction.pattern = pattern;
       }
       _ => panic!("Demand can only be set for junctions"),
     }
@@ -390,7 +430,6 @@ impl Network {
     }
   }
   fn read_times(&mut self, line: &str) {
-    println!("Reading times: {}", line);
     let mut parts = line.split_whitespace();
     // read the time option name
     let mut time_option = parts.next().unwrap().to_uppercase();
@@ -408,7 +447,6 @@ impl Network {
       time_option += &duration.to_uppercase();
       duration = parts.next().unwrap();
     }
-
 
     let mut time_units = parts.next().unwrap_or("HOURS").to_uppercase();
     // remove last "S" if it exists
@@ -454,16 +492,24 @@ impl Network {
       "START CLOCKTIME" => self.options.time_options.start_clocktime = seconds,
       _ => ()
     }
+  }
+  fn read_status(&mut self, line: &str) {
+    let mut parts = line.split_whitespace();
+    let id : &str = parts.next().unwrap().into();
+    let status = parts.next().unwrap().into();
 
+    // get the corresponding link type
+    let link = &mut self.links[*self.link_map.get(id).unwrap()];
 
-
-
-
-
-
-
-
-
+    match &mut link.link_type {
+      LinkType::Pipe(pipe) => {
+        pipe.status = PipeStatus::from_str(status);
+      }
+      LinkType::Valve(valve) => {
+        valve.status = ValveStatus::from_str(status);
+      }
+      _ => panic!("Status can only be set for pipes and valves"),
+    }
   }
 }
 

@@ -11,7 +11,7 @@ use solver::HydraulicSolver;
 const BANNER: [&str; 6] = [r"  _____ ____   _    _   _ _____ _____     ____  ____  ", r" | ____|  _ \ / \  | \ | | ____|_   _|   |  _ \/ ___| ", r" |  _| | |_) / _ \ |  \| |  _|   | |_____| |_) \___ \ ", r" | |___|  __/ ___ \| |\  | |___  | |_____|  _ < ___) |", r" |_____|_| /_/   \_\_| \_|_____| |_|     |_| \_\____/ ", r"                                                      "];
 fn main() {
   let start_time = Instant::now();
-  let file = env::args().nth(1).unwrap_or("networks/Agedir.inp".to_string());
+  let file = env::args().nth(1).unwrap_or("networks/dtd.inp".to_string());
   let parallel = env::args().nth(2).unwrap_or("false".to_string()) == "true";
 
   println!("{}", BANNER.join("\n"));
@@ -29,6 +29,17 @@ fn main() {
   let result = solver.run(parallel);
   let end_time = Instant::now();
   println!("Solver finished in {:?}", end_time.duration_since(start_time));
+  // let pipeid = "338609172";
+  // let pipe_index = network.link_map.get(pipeid).unwrap();
+  // let pipe = &network.links[*pipe_index];
+  // println!("Pipe: {:?}", pipe.id);
+  // println!("Flow: {:?}", result.flows[0][*pipe_index]);
   // println!("Heads: {:?}", result.heads[0].iter().map(|h| format!("{:.2}", h)).collect::<Vec<String>>().join(", "));
   // println!("Flows: {:?}", result.flows[0].iter().map(|f| format!("{:.2}", f)).collect::<Vec<String>>().join(", "));
+  // for (i, n) in network.nodes.iter().enumerate() {
+  //   println!("{}:{}", n.id, result.heads[0][i])
+  // }
+  // for (i, link) in network.links.iter().enumerate() {
+  //   println!("{}:{}", link.id, result.flows[0][i])
+  // }
 }

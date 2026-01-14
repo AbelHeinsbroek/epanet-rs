@@ -1,8 +1,7 @@
 use crate::model::pipe::Pipe;
 use crate::model::pump::Pump;
 use crate::model::valve::Valve;
-
-use crate::model::options::HeadlossFormula;
+use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
 
 /// Link struct
 pub struct Link {
@@ -39,6 +38,16 @@ impl LinkTrait for Link {
       LinkType::Pipe(pipe) => pipe.resistance(),
       LinkType::Pump(pump) => pump.resistance(),
       LinkType::Valve(valve) => valve.resistance(),
+    }
+  }
+}
+
+impl UnitConversion for Link {
+  fn convert_units(&mut self, flow: &FlowUnits, system: &UnitSystem, reverse: bool) {
+    match &mut self.link_type {
+      LinkType::Pipe(pipe) => pipe.convert_units(flow, system, reverse),
+      LinkType::Pump(_pump) => (),
+      LinkType::Valve(valve) => valve.convert_units(flow, system, reverse),
     }
   }
 }

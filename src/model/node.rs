@@ -1,7 +1,12 @@
 use crate::model::reservoir::Reservoir;
 use crate::model::tank::Tank;
 use crate::model::junction::Junction;
+use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
+
+use crate::constants::*;
+
 /// Node struct
+#[derive(Debug)]
 pub struct Node {
     pub id: Box<str>,
     pub node_type: NodeType,
@@ -9,6 +14,7 @@ pub struct Node {
 }
 
 /// Node types
+#[derive(Debug)]
 pub enum NodeType {
     Reservoir(Reservoir),
     Tank(Tank),
@@ -16,8 +22,34 @@ pub enum NodeType {
 }
 
 // helper methods for nodes to check if they are fixed head
+// and to get the head pattern 
 impl Node {
   pub fn is_fixed(&self) -> bool {
     matches!(self.node_type, NodeType::Reservoir(_) | NodeType::Tank(_))
+  }
+  pub fn head_pattern(&self) -> Option<&str> {
+    if let NodeType::Reservoir(reservoir) = &self.node_type {
+      if reservoir.head_pattern.is_some() {
+        return Some(reservoir.head_pattern.as_ref().unwrap());
+      }
+    }
+    None
+  }
+}
+
+impl UnitConversion for Node {
+  fn convert_units(&mut self, flow: &FlowUnits, system: &UnitSystem, reverse: bool) {
+
+    // only convert units to/from SI units
+    if system == &UnitSystem::SI {
+      let scale = if reverse { MperFT } else { 1.0 / MperFT };
+      self.elevation = self.elevation * scale;
+    }
+
+    match &mut self.node_type {
+      NodeType::Reservoir(_reservoir) => (),
+      NodeType::Tank(tank) => tank.convert_units(flow, system, reverse),
+      NodeType::Junction(junction) => junction.convert_units(flow, system, reverse),
+    }
   }
 }

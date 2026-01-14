@@ -1,5 +1,6 @@
 use crate::model::link::LinkTrait;
 use crate::model::options::HeadlossFormula;
+use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
 use crate::constants::*;
 
 
@@ -19,6 +20,16 @@ pub enum PipeStatus {
   Open,
   Closed,
   CheckValve
+}
+impl PipeStatus {
+  pub fn from_str(status: &str) -> PipeStatus {
+    match status.to_uppercase().as_str() {
+      "OPEN" => PipeStatus::Open,
+      "CLOSED" => PipeStatus::Closed,
+      "CV" => PipeStatus::CheckValve,
+      _ => panic!("Invalid pipe status")
+    }
+  }
 }
 
 pub struct Pipe {
@@ -125,7 +136,7 @@ impl Pipe {
     let w = q / s;
     // Re >= 4000, use Swamee & Jain approximation
 
-    if (w >= A1) {
+    if w >= A1 {
       let y1 = A8 / w.powf(0.9);
       let y2 = e / 3.7 + y1;
       let y3 = A9 * y2.ln();
@@ -151,5 +162,26 @@ impl Pipe {
       (f, dfdq)
     }
 
+  }
+}
+
+impl UnitConversion for Pipe {
+  fn convert_units(&mut self, _flow: &FlowUnits, system: &UnitSystem, reverse: bool) {
+    if system == &UnitSystem::SI {
+
+      if reverse {
+        self.diameter = self.diameter * MperFT * 1e3; // convert in to ft to mm
+        self.length = self.length * MperFT; // convert ft to m
+        self.roughness = self.roughness * MperFT; // convert mmft to ft
+      }
+      else {
+        self.diameter = self.diameter / 1e3 / MperFT; // convert mm to in
+        self.length = self.length / MperFT;
+        self.roughness = self.roughness / MperFT; // convert mm to mmft
+      }
+    }
+    else {
+      self.diameter = self.diameter / 12.0; // convert in to ft
+    }
   }
 }
