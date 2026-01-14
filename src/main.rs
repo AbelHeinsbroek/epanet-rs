@@ -27,6 +27,6 @@ fn main() {
   let solver = HydraulicSolver::new(&network);
   let result = solver.run(parallel);
   println!("Solver finished in {:?}", end_time.duration_since(start_time));
-  println!("Heads: {:?}", result.heads[0].iter().map(|h| format!("{:.2}", h)).collect::<Vec<String>>().join(", "));
-  println!("Flows: {:?}", result.flows[0].iter().map(|f| format!("{:.2}", f)).collect::<Vec<String>>().join(", "));
+  // println!("Heads: {:?}", result.heads[0].iter().map(|h| format!("{:.2}", h)).collect::<Vec<String>>().join(", "));
+  // println!("Flows: {:?}", result.flows[0].iter().map(|f| format!("{:.2}", f)).collect::<Vec<String>>().join(", "));
 }

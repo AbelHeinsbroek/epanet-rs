@@ -20,7 +20,7 @@ pub struct Valve {
 
 impl LinkTrait for Valve {
   fn coefficients(&self, q: f64, _resistance: f64) -> (f64, f64) {
-    (SMALL_VALUE, q * SMALL_VALUE)
+    (1.0/SMALL_VALUE, q)
   }
   fn resistance(&self) -> f64 {
     0.0
