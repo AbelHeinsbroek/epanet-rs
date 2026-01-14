@@ -6,8 +6,8 @@
 - [x] Refactor network, link and node setup, split into separate files and compute coefficients using traits
 - [x] Implement Darcy Weisbach
 - [x] Input file support for PATTERN, TIMES, OPTIONS
-- [] Support for PATTERNS in solve loop 
-- [] Implement unit conversion
+- [x] Support for PATTERNS in solve loop 
+- [x] Implement unit conversion
 - [] Implement Valves and Pumps
 - [] Implement tank logic
 - [] Try to get the solver working for f32 in addition to f64 (SIMD speedup?)
