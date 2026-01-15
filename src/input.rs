@@ -424,7 +424,11 @@ impl Network {
         }
       },
       "PRESSURE" => {
-        self.options.pressure_units = PressureUnits::from_str(value).unwrap();
+        // Handle "Pressure Exponent" as a separate option (skip if not a valid pressure unit)
+        if let Ok(units) = PressureUnits::from_str(value) {
+          self.options.pressure_units = units;
+        }
+        // Otherwise it's likely "Pressure Exponent" or similar - ignore
       }
       "TRIALS" => {
         self.options.max_trials = value.parse::<usize>().unwrap();
@@ -522,6 +526,386 @@ impl Network {
     } else {
       link.initial_status = LinkStatus::from_str(status);
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// Helper to create a network with default options for testing.
+  /// If `with_nodes` is true, adds two default nodes: "N1" (junction) and "N2" (junction).
+  fn test_network(with_nodes: bool) -> Network {
+    let mut network = Network::default();
+    if with_nodes {
+      network.add_node(Node {
+        id: "N1".into(),
+        elevation: 0.0,
+        node_type: NodeType::Junction(Junction { basedemand: 0.0, pattern: None }),
+      }).unwrap();
+      network.add_node(Node {
+        id: "N2".into(),
+        elevation: 0.0,
+        node_type: NodeType::Junction(Junction { basedemand: 0.0, pattern: None }),
+      }).unwrap();
+    }
+    network
+  }
+
+  // ==================== Junction Tests ====================
+
+  #[test]
+  fn test_read_junction_basic() {
+    let mut network = test_network(false);
+    let node = network.read_junction("J1  100.5  25.0");
+    
+    assert_eq!(&*node.id, "J1");
+    assert_eq!(node.elevation, 100.5);
+    
+    if let NodeType::Junction(junction) = &node.node_type {
+      assert_eq!(junction.basedemand, 25.0);
+      assert!(junction.pattern.is_none());
+    } else {
+      panic!("Expected Junction node type");
+    }
+  }
+
+  #[test]
+  fn test_read_junction_with_pattern() {
+    let mut network = test_network(false);
+    let node = network.read_junction("J2  50.0  100.0  PAT1");
+    
+    assert_eq!(&*node.id, "J2");
+    assert_eq!(node.elevation, 50.0);
+    
+    if let NodeType::Junction(junction) = &node.node_type {
+      assert_eq!(junction.basedemand, 100.0);
+      assert_eq!(junction.pattern.as_deref(), Some("PAT1"));
+    } else {
+      panic!("Expected Junction node type");
+    }
+  }
+
+  #[test]
+  fn test_read_junction_with_comment() {
+    let mut network = test_network(false);
+    // Pattern field contains semicolon (comment marker) - should be ignored
+    let node = network.read_junction("J3  75.0  50.0  ;comment");
+    
+    if let NodeType::Junction(junction) = &node.node_type {
+      assert!(junction.pattern.is_none());
+    } else {
+      panic!("Expected Junction node type");
+    }
+  }
+
+  #[test]
+  fn test_read_junction_missing_demand() {
+    let mut network = test_network(false);
+    // Only ID and elevation provided - demand should default to 0.0
+    let node = network.read_junction("J4  200.0");
+    
+    if let NodeType::Junction(junction) = &node.node_type {
+      assert_eq!(junction.basedemand, 0.0);
+    } else {
+      panic!("Expected Junction node type");
+    }
+  }
+
+  // ==================== Reservoir Tests ====================
+
+  #[test]
+  fn test_read_reservoir_basic() {
+    let mut network = test_network(false);
+    let node = network.read_reservoir("RES1  150.0");
+    
+    assert_eq!(&*node.id, "RES1");
+    assert_eq!(node.elevation, 150.0);
+    
+    if let NodeType::Reservoir(reservoir) = &node.node_type {
+      assert!(reservoir.head_pattern.is_none());
+    } else {
+      panic!("Expected Reservoir node type");
+    }
+  }
+
+  #[test]
+  fn test_read_reservoir_with_pattern() {
+    let mut network = test_network(false);
+    let node = network.read_reservoir("RES2  200.0  HEADPAT");
+    
+    if let NodeType::Reservoir(reservoir) = &node.node_type {
+      assert_eq!(reservoir.head_pattern.as_deref(), Some("HEADPAT"));
+    } else {
+      panic!("Expected Reservoir node type");
+    }
+  }
+
+  // ==================== Pipe Tests ====================
+
+  #[test]
+  fn test_read_pipe_basic() {
+    let network = test_network(true);
+
+    let link = network.read_pipe("P1  N2  N1  1000.0  12.0  100.0  0.0  Open");
+    
+    assert_eq!(&*link.id, "P1");
+    assert_eq!(link.start_node, 1);
+    assert_eq!(link.end_node, 0);
+    assert_eq!(link.initial_status, LinkStatus::Open);
+    
+    if let LinkType::Pipe(pipe) = &link.link_type {
+      assert_eq!(pipe.length, 1000.0);
+      assert_eq!(pipe.diameter, 12.0);
+      assert_eq!(pipe.roughness, 100.0);
+      assert!(!pipe.check_valve);
+    } else {
+      panic!("Expected Pipe link type");
+    }
+  }
+
+  #[test]
+  fn test_read_pipe_with_check_valve() {
+    let network = test_network(true);
+
+    let link = network.read_pipe("P2  N1  N2  500.0  8.0  120.0  0.0  CV");
+    
+    if let LinkType::Pipe(pipe) = &link.link_type {
+      assert!(pipe.check_valve);
+    } else {
+      panic!("Expected Pipe link type");
+    }
+  }
+
+  #[test]
+  fn test_read_pipe_closed() {
+    let network = test_network(true);
+
+    let link = network.read_pipe("P3  N1  N2  200.0  6.0  110.0  0.0  CLOSED");
+    
+    assert_eq!(link.initial_status, LinkStatus::Closed);
+  }
+
+  // ==================== Pump Tests ====================
+
+  #[test]
+  fn test_read_pump_with_head_curve() {
+    let network = test_network(true);
+
+    let link = network.read_pump("PUMP1  N1  N2  HEAD CURVE1");
+    
+    assert_eq!(&*link.id, "PUMP1");
+    assert_eq!(link.initial_status, LinkStatus::Open);
+    
+    if let LinkType::Pump(pump) = &link.link_type {
+      assert_eq!(&*pump.head_curve, "CURVE1");
+      assert_eq!(pump.speed, 1.0); // default speed
+    } else {
+      panic!("Expected Pump link type");
+    }
+  }
+
+  #[test]
+  fn test_read_pump_with_speed() {
+    let network = test_network(true);
+
+    let link = network.read_pump("PUMP2  N1  N2  HEAD C1  SPEED 1.5");
+    
+    if let LinkType::Pump(pump) = &link.link_type {
+      assert_eq!(pump.speed, 1.5);
+      assert_eq!(&*pump.head_curve, "C1");
+    } else {
+      panic!("Expected Pump link type");
+    }
+  }
+
+  // ==================== Curve Tests ====================
+
+  #[test]
+  fn test_read_curve_single_point() {
+    let mut network = test_network(false);
+    network.read_curve("CURVE1  100.0  50.0");
+    
+    let curve = network.curves.get("CURVE1").unwrap();
+    assert_eq!(curve.x, vec![100.0]);
+    assert_eq!(curve.y, vec![50.0]);
+  }
+
+  #[test]
+  fn test_read_curve_multiple_points() {
+    let mut network = test_network(false);
+    network.read_curve("CURVE2  0.0  100.0");
+    network.read_curve("CURVE2  50.0  75.0");
+    network.read_curve("CURVE2  100.0  25.0");
+    
+    let curve = network.curves.get("CURVE2").unwrap();
+    assert_eq!(curve.x, vec![0.0, 50.0, 100.0]);
+    assert_eq!(curve.y, vec![100.0, 75.0, 25.0]);
+  }
+
+  // ==================== Pattern Tests ====================
+
+  #[test]
+  fn test_read_pattern_single_line() {
+    let mut network = test_network(false);
+    network.read_pattern("PAT1  1.0  1.2  0.8  1.1");
+    
+    let pattern = network.patterns.get("PAT1").unwrap();
+    assert_eq!(pattern.multipliers, vec![1.0, 1.2, 0.8, 1.1]);
+  }
+
+  #[test]
+  fn test_read_pattern_multiple_lines() {
+    let mut network = test_network(false);
+    network.read_pattern("PAT2  1.0  1.5");
+    network.read_pattern("PAT2  2.0  0.5");
+    
+    let pattern = network.patterns.get("PAT2").unwrap();
+    assert_eq!(pattern.multipliers, vec![1.0, 1.5, 2.0, 0.5]);
+  }
+
+  // ==================== Options Tests ====================
+
+  #[test]
+  fn test_read_options_units_lps() {
+    let mut network = test_network(false);
+    network.read_options("UNITS  LPS");
+    
+    assert_eq!(network.options.flow_units, FlowUnits::LPS);
+    assert_eq!(network.options.unit_system, UnitSystem::SI);
+    assert_eq!(network.options.pressure_units, PressureUnits::METERS);
+  }
+
+  #[test]
+  fn test_read_options_units_cfs() {
+    let mut network = test_network(false);
+    network.read_options("UNITS  CFS");
+    
+    assert_eq!(network.options.flow_units, FlowUnits::CFS);
+    assert_eq!(network.options.unit_system, UnitSystem::US);
+    assert_eq!(network.options.pressure_units, PressureUnits::FEET);
+  }
+
+  #[test]
+  fn test_read_options_headloss() {
+    let mut network = test_network(false);
+    network.read_options("HEADLOSS  D-W");
+    
+    assert_eq!(network.options.headloss_formula, HeadlossFormula::DarcyWeisbach);
+  }
+
+  #[test]
+  fn test_read_options_trials() {
+    let mut network = test_network(false);
+    network.read_options("TRIALS  100");
+    
+    assert_eq!(network.options.max_trials, 100);
+  }
+
+  #[test]
+  fn test_read_options_accuracy() {
+    let mut network = test_network(false);
+    network.read_options("ACCURACY  0.0001");
+    
+    assert!((network.options.accuracy - 0.0001).abs() < 1e-10);
+  }
+
+  // ==================== Times Tests ====================
+
+  #[test]
+  fn test_read_times_duration_hours() {
+    let mut network = test_network(false);
+    network.read_times("DURATION  24  HOURS");
+    
+    assert_eq!(network.options.time_options.duration, 24 * 3600);
+  }
+
+  #[test]
+  fn test_read_times_duration_colon_format() {
+    let mut network = test_network(false);
+    network.read_times("DURATION  12:30");
+    
+    assert_eq!(network.options.time_options.duration, 12 * 3600 + 30 * 60);
+  }
+
+  #[test]
+  fn test_read_times_hydraulic_timestep() {
+    let mut network = test_network(false);
+    network.read_times("HYDRAULIC TIMESTEP  1:00");
+    
+    assert_eq!(network.options.time_options.hydraulic_timestep, 3600);
+  }
+
+  #[test]
+  fn test_read_times_pattern_timestep() {
+    let mut network = test_network(false);
+    network.read_times("PATTERN TIMESTEP  2  HOURS");
+    
+    assert_eq!(network.options.time_options.pattern_timestep, 2 * 3600);
+  }
+
+  #[test]
+  fn test_read_times_start_clocktime_am() {
+    let mut network = test_network(false);
+    network.read_times("START CLOCKTIME  6  AM");
+    
+    assert_eq!(network.options.time_options.start_clocktime, 6 * 3600);
+  }
+
+  #[test]
+  fn test_read_times_start_clocktime_pm() {
+    let mut network = test_network(false);
+    network.read_times("START CLOCKTIME  6  PM");
+    
+    assert_eq!(network.options.time_options.start_clocktime, 18 * 3600);
+  }
+
+  #[test]
+  fn test_read_times_duration_minutes() {
+    let mut network = test_network(false);
+    network.read_times("DURATION  90  MINUTES");
+    
+    assert_eq!(network.options.time_options.duration, 90 * 60);
+  }
+
+  #[test]
+  fn test_read_times_duration_min() {
+    let mut network = test_network(false);
+    network.read_times("DURATION  30  MIN");
+    
+    assert_eq!(network.options.time_options.duration, 30 * 60);
+  }
+
+  #[test]
+  fn test_read_times_duration_seconds() {
+    let mut network = test_network(false);
+    network.read_times("DURATION  3600  SECONDS");
+    
+    assert_eq!(network.options.time_options.duration, 3600);
+  }
+
+  #[test]
+  fn test_read_times_duration_sec() {
+    let mut network = test_network(false);
+    network.read_times("DURATION  1800  SEC");
+    
+    assert_eq!(network.options.time_options.duration, 1800);
+  }
+
+  #[test]
+  fn test_read_times_duration_days() {
+    let mut network = test_network(false);
+    network.read_times("DURATION  2  DAYS");
+    
+    assert_eq!(network.options.time_options.duration, 2 * 86400);
+  }
+
+  #[test]
+  fn test_read_times_duration_day() {
+    let mut network = test_network(false);
+    network.read_times("DURATION  1  DAY");
+    
+    assert_eq!(network.options.time_options.duration, 86400);
   }
 }
 

@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use crate::constants::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum FlowUnits {
   // Imperial units
   CFS,  // Cubic feet per second
@@ -40,7 +40,7 @@ impl FromStr for FlowUnits {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PressureUnits {
   PSI,    // Pounds per square inch
   KPA,    // Kilopascals

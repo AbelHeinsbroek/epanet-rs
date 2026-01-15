@@ -1,17 +1,10 @@
-mod input;
-mod model;
-mod solver;
-mod constants;
-mod output;
-
 use std::time::Instant;
 use clap::Parser;
 
-use model::network::Network;
-use solver::HydraulicSolver;
+use epanet_rs::model::network::Network;
+use epanet_rs::solver::HydraulicSolver;
 
 const BANNER: [&str; 6] = [r"  _____ ____   _    _   _ _____ _____     ____  ____  ", r" | ____|  _ \ / \  | \ | | ____|_   _|   |  _ \/ ___| ", r" |  _| | |_) / _ \ |  \| |  _|   | |_____| |_) \___ \ ", r" | |___|  __/ ___ \| |\  | |___  | |_____|  _ < ___) |", r" |_____|_| /_/   \_\_| \_|_____| |_|     |_| \_\____/ ", r"                                                      "];
-
 #[derive(Parser, Debug)]
 #[command(author="Abel Heinsbroek (Vitens N.V.)", version = "0.1.0", about, long_about = "A very fast, modern and safe re-implementation of the EPANET2 hydraulic solver, written in Rust")]
 struct Args {
@@ -71,6 +64,5 @@ fn main() {
       println!("Link {}: {:.2}", link.id, result.flows[0][i]);
     }
   }
-
 
 }

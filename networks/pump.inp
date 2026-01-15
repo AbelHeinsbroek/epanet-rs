@@ -28,11 +28,11 @@
  F               	4               	5               	100         	12          	100         	0           	Open  	;
  G               	4               	6               	100         	12          	100         	0           	Open  	;
  H               	6               	7               	100         	12          	100         	0           	Open  	;
- I               	FH2             	7               	100         	12          	100         	0           	Open  	;
+ I               	FH2             	7               	100         	12          	100         	0           	CV    	;
 
 [PUMPS]
 ;ID              	Node1           	Node2           	Parameters
- 1               	FH              	1               	HEAD P1	SPEED 1.0	;
+ 1               	FH              	1               	HEAD P1	SPEED 2	;
 
 [VALVES]
 ;ID              	Node1           	Node2           	Diameter    	Type	Setting     	MinorLoss   
@@ -44,19 +44,22 @@
 
 [STATUS]
 ;ID              	Status/Setting
+ 1               	1
 
 [PATTERNS]
 ;ID              	Multipliers
 
 [CURVES]
 ;ID              	X-Value     	Y-Value
-;PUMP: 
+;PUMP: PUMP: 
  P1              	50          	50          
 
 [CONTROLS]
 
 
+
 [RULES]
+
 
 
 [ENERGY]
