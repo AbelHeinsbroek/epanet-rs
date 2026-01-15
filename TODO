@@ -8,8 +8,14 @@
 - [x] Input file support for PATTERN, TIMES, OPTIONS
 - [x] Support for PATTERNS in solve loop 
 - [x] Implement unit conversion
-- [] Implement Valves and Pumps
-- [] Implement tank logic
-- [] Try to get the solver working for f32 in addition to f64 (SIMD speedup?)
-- [] Setup unit testing
-- [] Setup automated benchmarks
+- [x] Implement pumps
+- [x] Single point curves
+- [ ] Three point curves
+- [ ] Custom curves
+- [ ] Fixed power pumps
+- [ ] Coeff stability checks (pipe, valve, pump) (RQTol)
+- [ ] Implement Valves
+- [ ] Implement tank logic
+- [ ] Try to get the solver working for f32 in addition to f64 (SIMD speedup?)
+- [ ] Setup unit testing
+- [ ] Setup automated benchmarks
