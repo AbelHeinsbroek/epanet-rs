@@ -18,5 +18,5 @@
 - [ ] Implement Valves
 - [ ] Implement tank logic
 - [ ] Try to get the solver working for f32 in addition to f64 (SIMD speedup?)
-- [ ] Setup unit testing
+- [-] Setup unit testing
 - [ ] Setup automated benchmarks
