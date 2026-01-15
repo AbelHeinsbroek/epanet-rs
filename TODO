@@ -13,6 +13,7 @@
 - [ ] Three point curves
 - [ ] Custom curves
 - [ ] Fixed power pumps
+- [ ] Unit conversion for curves
 - [ ] Coeff stability checks (pipe, valve, pump) (RQTol)
 - [ ] Implement Valves
 - [ ] Implement tank logic
