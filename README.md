@@ -16,19 +16,19 @@ A very fast, modern and *safe* re-implementation of the EPANET2 hydraulic solver
 
 ```bash
 # Run simulation
-cargo run --release -- <network_file.inp>
+epanet-rs <network_file.inp>
 
 # Run with output file (JSON or MessagePack)
-cargo run --release -- <network_file.inp> output.json
+epanet-rs <network_file.inp> output.json
 
 # Run with verbose output
-cargo run --release -- <network_file.inp> --verbose
+epanet-rs <network_file.inp> --verbose
 
 # Run with parallel solving (for extended period simulations)
-cargo run --release -- <network_file.inp> --parallel
+epanet-rs <network_file.inp> --parallel
 
 # Print results to console
-cargo run --release -- <network_file.inp> --print-results
+epanet-rs <network_file.inp> --print-results
 ```
 
 ## Building
