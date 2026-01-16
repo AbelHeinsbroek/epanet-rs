@@ -2,11 +2,21 @@
 
 An extremely fast, modern and safe re-implementation of the EPANET2 hydraulic solver, written in Rust.
 
-## Why?
+## Background
 
 The EPANET2 solver has been the industry standard for hydraulic network simulation for decades due to its robustness, numerical stability, and extensive validation. Its algorithms and results are widely trusted in both academic and industrial applications.
 The core EPANET2 codebase, however, is several decades old and written in C, making it difficult to maintain, extend, and optimize using modern software engineering practices. In addition, the original implementation predates modern CPU architectures and therefore does not fully exploit multi-core processors or SIMD (Single Instruction, Multiple Data) capabilities.
+
+Modern applications of the EPANET solver, such as monte-carlo simulations, leak detection algorithms and real-time digital twins of huge networks require a more modern implementation, with better performance and maintainability.
+
 `epanet-rs` is a modern reimplementation of the EPANET2 hydraulic solver written in Rust, designed to preserve the original algorithms and numerical behavior while enabling safer memory management, improved maintainability, and performance optimizations through multi-threading and SIMD acceleration.
+
+## Design Goals
+
+- **Numerical Parity** with EPANET2_3 solver, ensuring identical or equivalent results for the same input
+- **High Performance** through multi-threading, SIMD acceleration and a modern, [faer](https://crates.io/crates/faer) based sparse solver
+- **Parallelization** of the solver loop by rewriting the solver to return vectors of heads and flows instead of in-place assignment
+- **Memory Safety** through Rust's ownership and borrowing system
 
 ## Usage
 
