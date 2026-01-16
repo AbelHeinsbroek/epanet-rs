@@ -10,6 +10,8 @@
 - [x] Implement unit conversion
 - [x] Implement pumps
 - [x] Single point curves
+- [-] Setup unit and integration testing
+- [ ] Get rid of all the Panics and Unwraps, use Result instead
 - [ ] Three point curves
 - [ ] Custom curves
 - [ ] Fixed power pumps
@@ -18,5 +20,5 @@
 - [ ] Implement Valves
 - [ ] Implement tank logic
 - [ ] Try to get the solver working for f32 in addition to f64 (SIMD speedup?)
-- [-] Setup unit testing
 - [ ] Setup automated benchmarks
+- [ ] Create EPANET2_3 API compatibility layer
