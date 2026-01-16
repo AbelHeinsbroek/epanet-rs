@@ -16,6 +16,7 @@ use crate::model::units::{FlowUnits, UnitSystem, PressureUnits, UnitConversion};
 use crate::model::options::*;
 // use crate::model::tank::Tank;
 
+
 #[derive(Debug)]
 enum ReadState {
   Junctions,
@@ -148,40 +149,25 @@ impl Network {
 
   /// Read a junction from a parts iterator
   fn read_junction(&mut self, line: &str) -> Node {
-    let mut parts = line.split_whitespace();
-    // read the junction data
+    let mut parts = parse_line(line);
     let id = parts.next().unwrap().into();
-    // read the elevation (optional, default 0.0)
     let elevation = parts.next().unwrap().parse::<f64>().unwrap_or(0.0);
-    // read the demand (optional, default 0.0)
     let demand = parts.next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
-    // read the pattern (optional, default none)
-    let mut pattern: Option<Box<str>> = parts.next().map(|s| s.into());
-    // if pattern is not None and is ";", set it to None
-    if pattern.is_some() && pattern.clone().unwrap().contains(";") {
-      pattern = None;
-    }
+    let pattern: Option<Box<str>> = parts.next().map(|s| s.into());
 
     Node {
       id,
       elevation,
-      node_type: NodeType::Junction(Junction { basedemand: demand, pattern: pattern }),
+      node_type: NodeType::Junction(Junction { basedemand: demand, pattern }),
     }
   }
 
   /// Read a reservoir from a parts iterator
   fn read_reservoir(&mut self, line: &str) -> Node {
-    let mut parts = line.split_whitespace();
-
+    let mut parts = parse_line(line);
     let id = parts.next().unwrap().into();
-    // read the elevation
     let elevation = parts.next().unwrap().parse::<f64>().unwrap();
-    // add the node to the network
-    let mut pattern: Option<Box<str>> = parts.next().map(|s| s.into());
-    // if pattern is not None and is ";", set it to None
-    if pattern.is_some() && pattern.clone().unwrap().contains(";") {
-      pattern = None;
-    }
+    let pattern: Option<Box<str>> = parts.next().map(|s| s.into());
 
     Node {
       id,
@@ -192,7 +178,7 @@ impl Network {
 
   /// Read a valve from a parts iterator
   fn read_valve(&mut self, line: &str) -> Link {
-    let mut parts = line.split_whitespace();
+    let mut parts = parse_line(line);
 
     let id = parts.next().unwrap().into();
     // read the start node
@@ -235,7 +221,7 @@ impl Network {
 
   /// Read a pipe from a parts iterator
   fn read_pipe(&self, line: &str) -> Link {
-    let mut parts = line.split_whitespace();
+    let mut parts = parse_line(line);
 
     let id = parts.next().unwrap().into();
     // read the start node
@@ -281,7 +267,7 @@ impl Network {
   }
   /// Read a pump from a parts iterator
   fn read_pump(&self, line: &str) -> Link {
-    let mut parts = line.split_whitespace();
+    let mut parts = parse_line(line);
 
     let id : Box<str> = parts.next().unwrap().into();
     // read the start node
@@ -327,7 +313,7 @@ impl Network {
   /// Read a curve from a parts iterator
   /// Appends a point to the curve if it already exists, otherwise creates a new curve
   fn read_curve(&mut self, line: &str) {
-    let mut parts = line.split_whitespace();
+    let mut parts = parse_line(line);
 
     let id: Box<str> = parts.next().unwrap().into();
     let x = parts.next().unwrap().parse::<f64>().unwrap();
@@ -350,7 +336,7 @@ impl Network {
   }
   /// Read a pattern from a parts iterator
   fn read_pattern(&mut self, line: &str) {
-    let mut parts = line.split_whitespace();
+    let mut parts = parse_line(line);
     let id: Box<str> = parts.next().unwrap().into();
     let multipliers = parts.map(|s| s.parse::<f64>().unwrap()).collect();
     if !self.patterns.contains_key(&id) {
@@ -364,16 +350,10 @@ impl Network {
   
   /// Read a demand from a parts iterator and set the basedemand for the junction
   fn read_demand(&mut self, line: &str) {
-    let mut parts = line.split_whitespace();
-
+    let mut parts = parse_line(line);
     let id: Box<str> = parts.next().unwrap().into();
     let demand = parts.next().unwrap().parse::<f64>().unwrap();
-
-    // get pattern
-    let mut pattern: Option<Box<str>> = parts.next().map(|s| s.into());
-    if pattern.is_some() && pattern.clone().unwrap().contains(";") {
-      pattern = None;
-    }
+    let pattern: Option<Box<str>> = parts.next().map(|s| s.into());
 
     let node_index = *self.node_map.get(&id).unwrap();
     let node = &mut self.nodes[node_index];
@@ -387,7 +367,7 @@ impl Network {
   }
   /// Read the options from a parts iterator
   fn read_options(&mut self, line: &str) {
-    let mut parts = line.split_whitespace(); // TODO: Implement option reading
+    let mut parts = parse_line(line);
     
     let option = parts.next().unwrap().trim().to_uppercase();
     let value = parts.next().unwrap();
@@ -446,7 +426,7 @@ impl Network {
     }
   }
   fn read_times(&mut self, line: &str) {
-    let mut parts = line.split_whitespace();
+    let mut parts = parse_line(line);
     // read the time option name
     let mut time_option = parts.next().unwrap().to_uppercase();
 
@@ -510,7 +490,7 @@ impl Network {
     }
   }
   fn read_status(&mut self, line: &str) {
-    let mut parts = line.split_whitespace();
+    let mut parts = parse_line(line);
     let id : &str = parts.next().unwrap().into();
     let status : &str = parts.next().unwrap().into();
 
@@ -527,6 +507,11 @@ impl Network {
       link.initial_status = LinkStatus::from_str(status);
     }
   }
+}
+
+/// Strip comments (after ';') from a line and split into whitespace-separated parts
+fn parse_line(line: &str) -> std::str::SplitWhitespace<'_> {
+  line.split(';').next().unwrap_or("").trim().split_whitespace()
 }
 
 #[cfg(test)]
@@ -633,7 +618,7 @@ mod tests {
   #[test]
   fn test_read_reservoir_with_pattern() {
     let mut network = test_network(false);
-    let node = network.read_reservoir("RES2  200.0  HEADPAT; Comment");
+    let node = network.read_reservoir("RES2  200.0  HEADPAT; comment");
     
     let NodeType::Reservoir(reservoir) = &node.node_type else {
       panic!("Expected Reservoir node type");
