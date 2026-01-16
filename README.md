@@ -15,7 +15,7 @@ Modern applications of the EPANET solver, such as monte-carlo simulations, leak 
 
 ## Design Goals
 
-- **Numerical Parity** with EPANET2_3 solver, ensuring identical or equivalent results for the same input
+- **Numerical Parity** with EPANET2_3 solver (hyd_2_3 branch), ensuring identical or equivalent results for the same input
 - **High Performance** through multi-threading, SIMD acceleration and a modern, [faer](https://crates.io/crates/faer) based sparse solver
 - **Parallelization** of the solver loop by rewriting the solver to return vectors of heads and flows instead of in-place assignment
 - **Memory Safety** through Rust's ownership and borrowing system
