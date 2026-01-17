@@ -10,7 +10,8 @@
 - [x] Implement unit conversion
 - [x] Implement pumps
 - [x] Single point curves
-- [ ] Use serde for serializing to/from json and msgpack files
+- [x] Use serde for serializing to/from json and msgpack files
+- [ ] Unit conversion when serializing using Serde
 - [ ] Use strum-lite for enum parsing
 - [ ] Setup unit and integration testing
 - [ ] Get rid of all the Panics and Unwraps, use Result instead
