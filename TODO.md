@@ -10,6 +10,7 @@
 - [x] Implement unit conversion
 - [x] Implement pumps
 - [x] Single point curves
+- [ ] Use strum-lite for enum parsing
 - [ ] Setup unit and integration testing
 - [ ] Get rid of all the Panics and Unwraps, use Result instead
 - [ ] Three point curves
