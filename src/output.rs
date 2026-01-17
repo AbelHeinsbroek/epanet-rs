@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::BufWriter;
+
 use crate::model::network::Network;
 use crate::solver::SolverResult;
 use serde::Serialize;
@@ -49,6 +50,22 @@ impl Network {
 
     Ok(())
 
+  }
+
+  pub fn save_network(&self, file: &str) -> Result<(), String> {
+    let file_extension = file.split('.').last().unwrap();
+    let file = File::create(file).map_err(|e| format!("Failed to create network file: {}", e))?;
+    let writer = BufWriter::new(file);
+
+    if file_extension == "json" {
+      serde_json::to_writer(writer, self).map_err(|e| format!("Failed to write network to file: {}", e))?;
+    } else if file_extension == "mpk" || file_extension == "msgpack" {
+      let mut serializer = Serializer::new(writer);
+      self.serialize(&mut serializer).map_err(|e| format!("Failed to write network to file: {}", e))?;
+    } else {
+      return Err(format!("Unsupported file extension: {}", file_extension));
+    }
+    Ok(())
   }
 }
 

@@ -10,13 +10,13 @@ const BANNER: [&str; 6] = [r"  _____ ____   _    _   _ _____ _____     ____  ___
 struct Args {
   input_file: String,
   output_file: Option<String>,
+  network_file: Option<String>,
   #[arg(short, long)]
   parallel: bool,
   #[arg(short, long)]
   verbose: bool,
   #[arg(long)]
-  print_results: bool
-
+  print_results: bool,
 }
 
 fn main() {
@@ -28,6 +28,7 @@ fn main() {
   let output_file = args.output_file;
   let verbose = args.verbose;
   let print_results = args.print_results;
+  let network_file = args.network_file;
 
   let start_time = Instant::now();
 
@@ -65,4 +66,10 @@ fn main() {
     }
   }
 
+  if let Some(network_file) = network_file {
+    let start_time = Instant::now();
+    network.save_network(network_file.as_str()).expect("Failed to save network");
+    let end_time = Instant::now();
+    println!("Network saved in {:?}", end_time.duration_since(start_time));
+  }
 }

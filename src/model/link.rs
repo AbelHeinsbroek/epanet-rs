@@ -3,6 +3,9 @@ use crate::model::pump::Pump;
 use crate::model::valve::Valve;
 use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Serialize)]
 /// Link struct
 pub struct Link {
   pub id: Box<str>,
@@ -13,6 +16,7 @@ pub struct Link {
   pub initial_status: LinkStatus,
 }
 
+#[derive(Deserialize, Serialize)]
 pub enum LinkType {
     Pipe(Pipe),
     Pump(Pump),
@@ -20,7 +24,7 @@ pub enum LinkType {
 }
 
 // Source: EPANET 2.3 types.h
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum LinkStatus {
   Xhead,         // pump cannot deliver head (closed)
   TempClosed,    // temporarily closed

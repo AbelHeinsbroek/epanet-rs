@@ -34,6 +34,22 @@ enum ReadState {
 }
 
 impl Network {
+
+  pub fn read_msgpack(&mut self, msgpack: &str) -> Result<(), String> {
+    let file = File::open(msgpack).or_else(|e| Err(format!("Failed to open file: {}: {}", msgpack, e)))?;
+    let reader = BufReader::new(file);
+    let network: Network = rmp_serde::from_read(reader).unwrap();
+    *self = network;
+    Ok(())
+  }
+  /// Read a network from a JSON file using serde_json.
+  pub fn read_json(&mut self, json: &str) -> Result<(), String> {
+    let file = File::open(json).or_else(|e| Err(format!("Failed to open file: {}: {}", json, e)))?;
+    let reader = BufReader::new(file);
+    let network: Network = serde_json::from_reader(reader).unwrap();
+    *self = network;
+    Ok(())
+  }
   /// Read a network from an INP file.
   pub fn read_inp(&mut self, inp: &str) -> Result<(), String> {
 
