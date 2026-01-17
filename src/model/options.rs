@@ -1,13 +1,14 @@
 use crate::model::units::{FlowUnits, PressureUnits, UnitSystem};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, Deserialize, Serialize)]
 pub enum HeadlossFormula {
   HazenWilliams, // H-W
   DarcyWeisbach, // D-W
   ChezyManning,  // C-M
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TimeOptions {
   pub duration: usize,      // duration of the simulation in hours
   pub hydraulic_timestep: usize, // hydraulic timestep in hours
@@ -29,7 +30,7 @@ impl Default for TimeOptions {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SimulationOptions {
   //
   pub flow_units: FlowUnits,

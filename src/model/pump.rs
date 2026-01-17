@@ -1,8 +1,9 @@
 use crate::model::link::{LinkTrait, LinkStatus};
 use crate::model::curve::HeadCurveStatistics;
 use crate::constants::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Pump {
   pub speed: f64,
   pub head_curve: Box<str>,

@@ -1,4 +1,6 @@
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Curve {
   pub id: Box<str>,
   pub x: Vec<f64>,
@@ -6,7 +8,7 @@ pub struct Curve {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HeadCurveStatistics {
   pub h_max: f64,           // maximum head
   pub h_shutoff: f64,       // shutoff head

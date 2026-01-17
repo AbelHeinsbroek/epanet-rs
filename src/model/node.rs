@@ -4,9 +4,10 @@ use crate::model::junction::Junction;
 use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
 
 use crate::constants::*;
+use serde::{Deserialize, Serialize};
 
 /// Node struct
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Node {
     pub id: Box<str>,
     pub node_type: NodeType,
@@ -14,7 +15,7 @@ pub struct Node {
 }
 
 /// Node types
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum NodeType {
     Reservoir(Reservoir),
     Tank(Tank),

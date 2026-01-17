@@ -2,7 +2,6 @@ use std::fs::File;
 use std::io::BufWriter;
 use crate::model::network::Network;
 use crate::solver::SolverResult;
-use std::collections::HashMap;
 use serde::Serialize;
 use rmp_serde::{Serializer};
 

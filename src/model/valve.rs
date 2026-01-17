@@ -1,8 +1,9 @@
 use crate::model::link::{LinkTrait, LinkStatus};
 use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
 use crate::constants::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ValveType {
   PRV, // Pressure Reducing Valve
   PSV, // Pressure Sensing Valve
@@ -13,6 +14,7 @@ pub enum ValveType {
   GPV, // General Purpose Valve
 }
 
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Valve {
   pub diameter: f64,
   pub setting: f64,

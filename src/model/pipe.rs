@@ -3,6 +3,7 @@ use crate::model::options::HeadlossFormula;
 use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
 use crate::model::link::LinkStatus;
 use crate::constants::*;
+use serde::{Deserialize, Serialize};
 
 
 // Constants used for computing Darcy-Weisbach friction factor (src: hydcoefs.c from EPANET 2.3)
@@ -16,6 +17,7 @@ const A9 : f64 = -8.68588963806503655300e-01;  // -2/ln(10)
 const AB : f64 =  3.28895476345399058690e-03;   // 5.74/(4000^.9)
 const AC : f64 = -5.14214965799093883760e-03;  // AA*AB
 
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Pipe {
   pub diameter: f64,
   pub length: f64,

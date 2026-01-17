@@ -1,7 +1,8 @@
 use crate::model::units::UnitConversion;
 use crate::model::units::{FlowUnits, UnitSystem};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Tank {
 
 }
