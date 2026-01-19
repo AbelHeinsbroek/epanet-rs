@@ -1,11 +1,12 @@
 use std::fs::File;
 use std::io::{BufReader, BufRead};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use crate::model::network::Network;
 use crate::model::node::{Node, NodeType};
 use crate::model::link::{Link, LinkType, LinkStatus};
-use crate::model::curve::Curve;
+use crate::model::curve::{Curve, HeadCurve};
 use crate::model::pattern::Pattern;
 use crate::model::junction::Junction;
 use crate::model::reservoir::Reservoir;
@@ -152,16 +153,19 @@ impl Network {
     }
     // convert units
     self.convert_units();
-    // update pump statistics
 
-    for pump in self.links.iter_mut() {
-      if let LinkType::Pump(pump) = &mut pump.link_type {
-        let head_curve_statistics = self.curves.get(&pump.head_curve).unwrap().head_curve_statistics();
-        pump.head_curve_statistics = Some(head_curve_statistics);
+    // update pump statistics (TODO: move to separate method)
+    for link in self.links.iter_mut() {
+      if let LinkType::Pump(pump) = &mut link.link_type {
+        // get the head c
+        let curve = self.curves.get(&pump.head_curve_id).unwrap_or_else(|| panic!("Head curve not found for pump {}", pump.head_curve_id));
+        // assign the head curve to the pump
+        pump.head_curve = Some(HeadCurve::new(Arc::new(curve.clone())));
       }
     }
 
     Ok(())
+
   }
 
   /// convert units
@@ -333,7 +337,7 @@ impl Network {
         }
       }
     }
-    let head_curve = head_curve.to_string().into_boxed_str();
+    let head_curve_id = head_curve.to_string().into_boxed_str();
 
     Link {
       id,
@@ -342,7 +346,7 @@ impl Network {
       start_node: start_node_index,
       end_node: end_node_index,
       minor_loss: 0.0,
-      link_type: LinkType::Pump(Pump { speed, head_curve, power, head_curve_statistics: None}),
+      link_type: LinkType::Pump(Pump { speed, head_curve_id, power, head_curve: None }),
       initial_status: LinkStatus::Open,
     }
   }
@@ -356,7 +360,7 @@ impl Network {
     let y = parts.next().unwrap().parse::<f64>().unwrap();
     // create curve if it does not exist
     if !self.curves.contains_key(&id) {
-      self.curves.insert(id.clone(), Curve { id, x: vec![x], y: vec![y] });
+      self.curves.insert(id.clone(), Curve { id, x: vec![x], y: vec![y]});
     }
     // otherwise, add the point to the curve
     else {
@@ -723,7 +727,7 @@ mod tests {
       panic!("Expected Pump link type");
     };
 
-    assert_eq!(&*pump.head_curve, "CURVE1");
+    assert_eq!(&*pump.head_curve_id, "CURVE1");
     assert_eq!(pump.speed, 1.0); // default speed
   }
 
@@ -738,7 +742,7 @@ mod tests {
     };
 
     assert_eq!(pump.speed, 1.5);
-    assert_eq!(&*pump.head_curve, "C1");
+    assert_eq!(&*pump.head_curve_id, "C1");
   }
 
   // ==================== Curve Tests ====================

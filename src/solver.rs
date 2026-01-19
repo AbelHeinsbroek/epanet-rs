@@ -373,8 +373,8 @@ impl<'a> HydraulicSolver<'a> {
         let flow = area * velocity;
         return flow;
       } else if let LinkType::Pump(pump) = &l.link_type {
-        if let Some(head_curve_statistics) = &pump.head_curve_statistics {
-          return head_curve_statistics.q_initial;
+        if let Some(head_curve) = &pump.head_curve {
+          return head_curve.statistics.q_initial;
         } else {
           return 0.0;
         }
