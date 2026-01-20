@@ -287,8 +287,8 @@ impl<'a> HydraulicSolver<'a> {
 
           // update the flow of the link
           flows[i] -= dq;
-          // update the status
 
+          // update the link status and check for status changes
           let new_status = link.update_status(statuses[i], flows[i], heads[link.start_node], heads[link.end_node]);
           if let Some(status) = new_status {
             statuses[i] = status;
@@ -304,7 +304,6 @@ impl<'a> HydraulicSolver<'a> {
       let rel_change = sum_dq / (sum_q + 1e-6);
 
       if rel_change < self.network.options.accuracy && !status_changed {
-
 
         if verbose {
           let flow_balance = self.flow_balance(&demands, &flows);
