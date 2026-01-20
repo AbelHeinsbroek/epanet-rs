@@ -1,4 +1,4 @@
-use crate::model::link::{LinkTrait, LinkStatus, LinkCoefficients};
+use crate::model::link::{LinkTrait, LinkStatus, LinkCoefficients, NodeModification};
 use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
 use crate::constants::*;
 use serde::{Deserialize, Serialize};
@@ -25,39 +25,50 @@ pub struct Valve {
 
 
 impl LinkTrait for Valve {
-  fn coefficients(&self, q: f64, _resistance: f64, status: LinkStatus) -> LinkCoefficients {
+  fn coefficients(&self, q: f64, _resistance: f64, status: LinkStatus, excess_flow_upstream: f64, excess_flow_downstream: f64) -> LinkCoefficients {
     if status == LinkStatus::Closed {
-      return LinkCoefficients::simple(1.0/BIG_VALUE, q, status);
+      return LinkCoefficients::simple(1.0/BIG_VALUE, q);
     }
     match self.valve_type {
       ValveType::TCV => {
         // Minor loss coefficient is the setting of the valve
         let km = 0.02517 * self.setting / self.diameter.powi(4);
         let (g_inv, y) = self.valve_coefficients(q, km);
-        return LinkCoefficients::simple(g_inv, y, status);
+        return LinkCoefficients::simple(g_inv, y);
       }
       // Positional Control Valve (PCV)
       ValveType::PCV => {
         let km = self.pcv_minor_loss();
         let (g_inv, y) = self.valve_coefficients(q, km);
-        return LinkCoefficients::simple(g_inv, y, status);
+        return LinkCoefficients::simple(g_inv, y);
       }
       // Flow Control Valve (FCV)
       ValveType::FCV => {
         let (g_inv, y) = self.valve_coefficients(q, SMALL_VALUE);
         // if flow is less than the setting, treat as a regular valve (no flow control/restrictions)
         if q < self.setting {
-          return LinkCoefficients::simple(g_inv, y, status);
+          return LinkCoefficients::simple(g_inv, y);
         }
         else {
           let hloss = y / g_inv + BIG_VALUE * (q - self.setting);
           let hgrad = BIG_VALUE;
-          return LinkCoefficients::simple(1.0 / hgrad, hloss / hgrad, status);
+          return LinkCoefficients::simple(1.0 / hgrad, hloss / hgrad);
         }
       }
       // Pressure Reducing Valve (PRV)
+      ValveType::PRV => {
+        if status == LinkStatus::Active {
+          return self.prv_coefficients(q, excess_flow_downstream);
+        }
+        else {
+          return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
+        }
+      }
+      ValveType::PSV => {
+        return self.psv_coefficients(q, excess_flow_upstream);
+      }
       _ => {
-        return LinkCoefficients::simple(1.0/SMALL_VALUE, q, status);
+        return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
       }
     }
   }
@@ -69,7 +80,36 @@ impl LinkTrait for Valve {
 
 }
 impl Valve {
+  /// Compute the coefficients for pressure sustaining valve with a flow q and excess flow upstream
+  fn psv_coefficients(&self, q: f64, excess_flow_upstream: f64) -> LinkCoefficients {
+    return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
+  }
 
+  /// Compute the coefficients for pressure reducing valve with a flow q and excess flow downstream
+  fn prv_coefficients(&self, q: f64, excess_flow_downstream: f64) -> LinkCoefficients {
+
+    let set = 23.0789;
+
+    let mut rhs_add = (set * BIG_VALUE);
+    if excess_flow_downstream < 0.0 {
+      rhs_add += excess_flow_downstream;
+    }
+
+    return LinkCoefficients {
+      g_inv: 0.0,
+      y: excess_flow_downstream,
+      new_status: None,
+      upstream_modification: None,
+      downstream_modification: Some(NodeModification {
+        diagonal_add: BIG_VALUE,
+        rhs_add: rhs_add,
+      })
+    }
+
+
+
+
+  }
 
   fn pcv_minor_loss(&self) -> f64 {
     // Minor loss coefficient for a completely open valve

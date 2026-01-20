@@ -191,6 +191,13 @@ impl<'a> HydraulicSolver<'a> {
           rhs[i] = -demands[global];
         }
       }
+      // calculate excess flows at each node (needed for PSV/PRV valves)
+      let mut excess_flows = demands.iter().map(|d| -d).collect::<Vec<f64>>();
+      for (i, link) in self.network.links.iter().enumerate() {
+        let q = flows[i];
+        excess_flows[link.start_node] -= q;
+        excess_flows[link.end_node] += q;
+      }
 
       // clone the symbolic LLT to avoid borrowing issues
       let symbolic_llt = self.symbolic_llt.clone();
@@ -199,12 +206,15 @@ impl<'a> HydraulicSolver<'a> {
       for (i, link) in self.network.links.iter().enumerate() {
         let q = flows[i];
         let csc_index = &self.csc_indices[i];
-        let coefficients = link.coefficients(q, resistances[i], statuses[i]);
+        let coefficients = link.coefficients(q, resistances[i], statuses[i], excess_flows[link.start_node], excess_flows[link.end_node]);
 
         g_invs[i] = coefficients.g_inv;
         ys[i] = coefficients.y;
-        // update the status of the link
-        statuses[i] = coefficients.status;
+
+        // update the status of the link if it has a new status
+        if let Some(status) = coefficients.new_status {
+          statuses[i] = status;
+        }
 
         // Get the CSC indices for the start and end nodes
         let u = self.node_to_unknown[link.start_node];
@@ -227,6 +237,17 @@ impl<'a> HydraulicSolver<'a> {
         if let (Some(_i), Some(_j)) = (u, v) {
             values[csc_index.off_diag_uv.unwrap()] -= coefficients.g_inv;
             values[csc_index.off_diag_vu.unwrap()] -= coefficients.g_inv;
+        }
+
+        // apply the upstream/downstream modifications to the nodes (for PSV/PRV valves)
+        if let Some(upstream_modification) = coefficients.upstream_modification {
+          rhs[u.unwrap()] += upstream_modification.rhs_add;
+          values[csc_index.diag_u.unwrap()] += upstream_modification.diagonal_add;
+        }
+
+        if let Some(downstream_modification) = coefficients.downstream_modification {
+          rhs[v.unwrap()] += downstream_modification.rhs_add;
+          values[csc_index.diag_v.unwrap()] += downstream_modification.diagonal_add;
         }
       }
 

@@ -68,7 +68,7 @@ pub struct LinkCoefficients {
   pub g_inv: f64,
   pub y: f64,
   /// New status of the link
-  pub status: LinkStatus,
+  pub new_status: Option<LinkStatus>,
   /// Optional modification to upstream node (for PSV valves)
   pub upstream_modification: Option<NodeModification>,
   /// Optional modification to downstream node (for PSV valves)
@@ -77,24 +77,27 @@ pub struct LinkCoefficients {
 
 impl LinkCoefficients {
   /// Create a simple link coefficients struct with no matrix modifications (all links except PRV/PSV valves)
-  pub fn simple(g_inv: f64, y: f64, status: LinkStatus) -> Self {
-    Self { g_inv, y, status, upstream_modification: None, downstream_modification: None }
+  pub fn simple(g_inv: f64, y: f64) -> Self {
+    Self { g_inv, y, new_status: None, upstream_modification: None, downstream_modification: None }
+  }
+  pub fn new_status(g_inv: f64, y: f64, new_status: LinkStatus) -> Self {
+    Self { g_inv, y, new_status: Some(new_status), upstream_modification: None, downstream_modification: None }
   }
 }
 
 pub trait LinkTrait {
   /// Calculate the 1/G_ij and Y_ij coefficients for the link
-  fn coefficients(&self, q: f64, resistance: f64, status: LinkStatus) -> LinkCoefficients;
+  fn coefficients(&self, q: f64, resistance: f64, status: LinkStatus, excess_flow_upstream: f64, excess_flow_downstream: f64) -> LinkCoefficients;
   /// Calculate the resistance of the link
   fn resistance(&self) -> f64;
 }
 
 impl LinkTrait for Link {
-  fn coefficients(&self, q: f64, resistance: f64, status: LinkStatus) -> LinkCoefficients {
+  fn coefficients(&self, q: f64, resistance: f64, status: LinkStatus, excess_flow_upstream: f64, excess_flow_downstream: f64) -> LinkCoefficients {
     match &self.link_type {
-      LinkType::Pipe(pipe) => pipe.coefficients(q, resistance, status),
-      LinkType::Pump(pump) => pump.coefficients(q, resistance, status),
-      LinkType::Valve(valve) => valve.coefficients(q, resistance, status),
+      LinkType::Pipe(pipe) => pipe.coefficients(q, resistance, status, excess_flow_upstream, excess_flow_downstream),
+      LinkType::Pump(pump) => pump.coefficients(q, resistance, status, excess_flow_upstream, excess_flow_downstream),
+      LinkType::Valve(valve) => valve.coefficients(q, resistance, status, excess_flow_upstream, excess_flow_downstream),
     }
   }
   fn resistance(&self) -> f64 {

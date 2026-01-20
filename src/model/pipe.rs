@@ -31,19 +31,19 @@ pub struct Pipe {
 const H_EXPONENT: f64 = 1.852; // Hazen-Williams exponent
 
 impl LinkTrait for Pipe {
-  fn coefficients(&self, q: f64, r: f64, status: LinkStatus) -> LinkCoefficients {
+  fn coefficients(&self, q: f64, r: f64, status: LinkStatus, _:f64, _:f64) -> LinkCoefficients {
 
     if self.check_valve && q < 0.0 {
-      return LinkCoefficients::simple(1.0 / BIG_VALUE, q, LinkStatus::TempClosed);
+      return LinkCoefficients::new_status(1.0 / BIG_VALUE, q, LinkStatus::TempClosed);
     }
     // for closed pipes use headloss formula hloss = BIG_VALUE * q
     if status == LinkStatus::Closed {
-      return LinkCoefficients::simple(1.0 / BIG_VALUE, q, status);
+      return LinkCoefficients::simple(1.0 / BIG_VALUE, q);
     }
 
     if self.headloss_formula == HeadlossFormula::DarcyWeisbach {
       let (g_inv, y) = self.dw_coefficients(q, r);
-      return LinkCoefficients::simple(g_inv, y, status);
+      return LinkCoefficients::simple(g_inv, y);
     }
 
     // take the absolute value of the flow
@@ -67,7 +67,7 @@ impl LinkTrait for Pipe {
     hloss *= q.signum();
 
     // return the coefficients
-    LinkCoefficients::simple(1.0 / hgrad, hloss/hgrad, status)
+    LinkCoefficients::simple(1.0 / hgrad, hloss/hgrad)
   }
 
   fn resistance(&self) -> f64 {
