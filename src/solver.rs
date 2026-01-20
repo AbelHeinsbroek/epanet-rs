@@ -43,8 +43,7 @@ pub struct FlowBalance {
 pub struct CSCIndex {
   pub diag_u: Option<usize>,      // CSC index for J[u,u]
   pub diag_v: Option<usize>,      // CSC index for J[v,v]
-  pub off_diag_uv: Option<usize>, // CSC index for J[u,v]
-  pub off_diag_vu: Option<usize>, // CSC index for J[v,u]
+  pub off_diag: Option<usize>, // CSC index for lower triangular off-diagonal entry
 }
 
 pub struct HydraulicSolver<'a> {
@@ -180,6 +179,8 @@ impl<'a> HydraulicSolver<'a> {
     let mut ys: Vec<f64> = vec![0.0; self.network.links.len()];
     let mut jac = self.jac.clone();
 
+    let mut excess_flows = vec![0.0; self.network.nodes.len()];
+
     for iteration in 1..=self.network.options.max_trials {
       // reset values and rhs
       values.fill(0.0);
@@ -191,8 +192,11 @@ impl<'a> HydraulicSolver<'a> {
           rhs[i] = -demands[global];
         }
       }
+
       // calculate excess flows at each node (needed for PSV/PRV valves)
-      let mut excess_flows = demands.iter().map(|d| -d).collect::<Vec<f64>>();
+      for (i, demand) in demands.iter().enumerate() {
+        excess_flows[i] = -demand;
+      }
       for (i, link) in self.network.links.iter().enumerate() {
         let q = flows[i];
         excess_flows[link.start_node] -= q;
@@ -235,8 +239,7 @@ impl<'a> HydraulicSolver<'a> {
             }
         }
         if let (Some(_i), Some(_j)) = (u, v) {
-            values[csc_index.off_diag_uv.unwrap()] -= coefficients.g_inv;
-            values[csc_index.off_diag_vu.unwrap()] -= coefficients.g_inv;
+            values[csc_index.off_diag.unwrap()] -= coefficients.g_inv;
         }
 
         // apply the upstream/downstream modifications to the nodes (for PSV/PRV valves)
@@ -347,8 +350,8 @@ impl<'a> HydraulicSolver<'a> {
       if let Some(i) = u { csc_index.diag_u = find_csc_index(sym, i, i); }
       if let Some(j) = v { csc_index.diag_v = find_csc_index(sym, j, j); }
       if let (Some(i), Some(j)) = (u, v) {
-          csc_index.off_diag_uv = find_csc_index(sym, i, j);
-          csc_index.off_diag_vu = find_csc_index(sym, j, i);
+          let (row, col) = if i >= j { (i, j) } else { (j, i) };
+          csc_index.off_diag = find_csc_index(sym, row, col);
       }
       csc_indices.push(csc_index);
     }
@@ -360,18 +363,18 @@ impl<'a> HydraulicSolver<'a> {
   fn build_sparsity_pattern(network: &Network, node_to_unknown: &Vec<Option<usize>>) -> SymbolicSparseColMat<usize> {
     let n_unknowns = node_to_unknown.iter().filter(|&x| x.is_some()).count();
 
-    // Pre-allocate: at most 4 triplets per link (2 diagonal + 2 off-diagonal)
-    let mut triplets = Vec::with_capacity(4 * network.links.len());
+    // Pre-allocate: at most 3 triplets per link (2 diagonal + 1 lower off-diagonal)
+    let mut triplets = Vec::with_capacity(3 * network.links.len());
     for link in network.links.iter() {
       let u = node_to_unknown[link.start_node]; // u is the index of the start node (None if unknown)
       let v = node_to_unknown[link.end_node]; // v is the index of the end node (None if unknown)
       // diagonal elements (self-connectivity)
       if let Some(i) = u { triplets.push(Triplet::new(i, i, 0.0)); } // add diagonal element for u
       if let Some(j) = v { triplets.push(Triplet::new(j, j, 0.0)); } // add diagonal element for v
-      // off diagonal elements (connectivity)
+      // lower-triangular off diagonal element (connectivity)
       if let (Some(i), Some(j)) = (u, v) {
-        triplets.push(Triplet::new(i, j, 0.0)); // add off-diagonal element for u,v
-        triplets.push(Triplet::new(j, i, 0.0)); // add off-diagonal element for v,u
+        let (row, col) = if i >= j { (i, j) } else { (j, i) };
+        triplets.push(Triplet::new(row, col, 0.0));
       }
     }
     // convert triplets to sparse matrix
@@ -457,5 +460,4 @@ fn find_csc_index(
     sym.row_idx()[col_start..col_end]
         .iter()
         .position(|&r| r == row)
-        .map(|pos| col_start + pos)
-}
+        .map(|pos| col_start + pos)}
