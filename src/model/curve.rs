@@ -152,8 +152,18 @@ impl HeadCurve {
     let r = (y2 - y1) / (self.curve.x[x2] - self.curve.x[x1]);
     let h0 = y1 - r * self.curve.x[x1];
 
-    let hgrad = -r * speed;
-    let hloss = -h0 * speed.powi(2) + hgrad * q;
+    let mut hgrad = -r * speed;
+    let mut hloss = -h0 * speed.powi(2) + hgrad * q;
+
+    // use linear curve if gradient is too large or too small
+    if hgrad > BIG_VALUE {
+      hgrad = BIG_VALUE;
+      hloss = -hgrad * q;
+    }
+    if hgrad < RQ_TOL {
+      hgrad = RQ_TOL;
+      hloss = -hgrad * q;
+    }
 
     // return the gradient and head loss
     (hgrad, hloss)
@@ -176,18 +186,26 @@ impl HeadCurve {
       let r = self.statistics.r * speed.powf(n-1.0);
 
       // curve is nonlinear
-      if n != 1.0 {
+      let (mut hgrad, mut hloss) = if n != 1.0 {
         // compute curve gradient
         let hgrad = n * r * q.powf(n - 1.0);
         // ... otherwise compute head loss from pump curve
         let hloss = h0 + hgrad * q/ n;
-        return (hgrad, hloss);
+        (hgrad, hloss)
       }
       else {
         let hgrad = r;
         let hloss = h0 + hgrad * q;
-        return (hgrad, hloss);
+        (hgrad, hloss)
+      };
+
+      // use linear function for very small gradient
+      if hgrad < RQ_TOL {
+        hgrad = RQ_TOL;
+        hloss = self.statistics.h_shutoff + hgrad * q / n;
       }
+
+      (hgrad, hloss)
     }
   }
 }

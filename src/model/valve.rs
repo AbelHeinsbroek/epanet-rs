@@ -58,14 +58,14 @@ impl LinkTrait for Valve {
       // Pressure Reducing Valve (PRV)
       ValveType::PRV => {
         if status == LinkStatus::Active {
-          return self.prv_coefficients(q, excess_flow_downstream);
+          return self.prv_coefficients(excess_flow_downstream);
         }
         else {
           return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
         }
       }
       ValveType::PSV => {
-        return self.psv_coefficients(q, excess_flow_upstream);
+        return self.psv_coefficients(excess_flow_upstream);
       }
       _ => {
         return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
@@ -81,7 +81,9 @@ impl LinkTrait for Valve {
     match self.valve_type {
       ValveType::PRV => {
         self.prv_status(status, q, head_upstream, head_downstream)
-
+      }
+      ValveType::PSV => {
+        self.psv_status(status, q, head_upstream, head_downstream)
       }
       _ => None,
     }
@@ -93,30 +95,60 @@ impl Valve {
   fn prv_status(&self, status: LinkStatus, q: f64, head_upstream: f64, head_downstream: f64) -> Option<LinkStatus> {
     match status {
       LinkStatus::Active => {
-        if q < -Q_TOL { Some(LinkStatus::Closed) }
-        else if head_upstream < self.setting - H_TOL { Some(LinkStatus::Open) }
+        if q < -Q_TOL { Some(LinkStatus::Closed) } // closed if flow is negative
+        else if head_upstream < self.setting - H_TOL { Some(LinkStatus::Open) } // open if head upstream is less than the setting
         else { None } // no status change
       }
       LinkStatus::Open => {
-        if q < -Q_TOL { Some(LinkStatus::Closed) }
-        else if head_downstream > self.setting + H_TOL { Some (LinkStatus::Active)}
+        if q < -Q_TOL { Some(LinkStatus::Closed) } // closed if flow is negative
+        else if head_downstream > self.setting + H_TOL { Some (LinkStatus::Active)} // active if head downstream is greater than the setting
         else { None } // no status change
       }
       LinkStatus::Closed => {
         if head_upstream >= self.setting + H_TOL && head_downstream < self.setting - H_TOL {
-          Some(LinkStatus::Active)
+          Some(LinkStatus::Active) // active if head upstream is greater than the setting and head downstream is less than the setting
         } else if head_upstream < self.setting - H_TOL && head_upstream > head_downstream + H_TOL {
-          Some(LinkStatus::Open)
+          Some(LinkStatus::Open) // open if head upstream is less than the setting and head upstream is greater than head downstream plus the tolerance
         } else {
-          None
+          None // no status change
         }
+      }
+      LinkStatus::XPressure => {
+        if q < -Q_TOL { Some(LinkStatus::Closed)}
+        else { None }
       }
       _ => None
     }
-
   }
+  fn psv_status(&self, status: LinkStatus, q: f64, head_upstream: f64, head_downstream: f64) -> Option<LinkStatus> {
+    match status {
+      LinkStatus::Active => {
+        if q < -Q_TOL { Some(LinkStatus::Closed)} // closed if flow is negative
+        else if head_downstream > self.setting + H_TOL { Some(LinkStatus::Open)} //  open if head downstream is less then the setting
+        else { None } // no status change
+      }
+      LinkStatus::Open => {
+        if q < -Q_TOL { Some(LinkStatus::Closed)} // closed if flow is negative
+        else if head_upstream < self.setting - H_TOL { Some(LinkStatus::Active) } // Active when upstream head is less than the setting
+        else { None } // no status change
+      }
+      LinkStatus::Closed => {
+        if head_downstream > self.setting + H_TOL && head_upstream > head_downstream + H_TOL { Some(LinkStatus::Open) } 
+        else if head_upstream > self.setting + H_TOL && head_upstream > head_downstream + H_TOL { Some(LinkStatus::Active) }
+        else { None } // no status change
+      }
+      LinkStatus::XPressure => {
+        if q < -Q_TOL { Some(LinkStatus::Closed)}
+        else { None }
+      }
+      _ => None
+    }
+  }
+
+
+
   /// Compute the coefficients for pressure sustaining valve with a flow q and excess flow upstream
-  fn psv_coefficients(&self, q: f64, excess_flow_upstream: f64) -> LinkCoefficients {
+  fn psv_coefficients(&self, excess_flow_upstream: f64) -> LinkCoefficients {
 
     let mut rhs_add = self.setting * BIG_VALUE;
 
@@ -137,11 +169,9 @@ impl Valve {
   }
 
   /// Compute the coefficients for pressure reducing valve with a flow q and excess flow downstream
-  fn prv_coefficients(&self, q: f64, excess_flow_downstream: f64) -> LinkCoefficients {
+  fn prv_coefficients(&self, excess_flow_downstream: f64) -> LinkCoefficients {
 
-    let set = self.setting;
-
-    let mut rhs_add = (set * BIG_VALUE);
+    let mut rhs_add = self.setting * BIG_VALUE;
     if excess_flow_downstream < 0.0 {
       rhs_add += excess_flow_downstream;
     }
@@ -156,9 +186,6 @@ impl Valve {
         rhs_add: rhs_add,
       })
     }
-
-
-
 
   }
 

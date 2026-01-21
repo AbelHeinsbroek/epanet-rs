@@ -57,8 +57,13 @@ impl LinkTrait for Pipe {
 
     // Friction head loss gradient
     let mut hgrad = n * r * q_abs.powf(n-1.0);
-    // Headloss
-    let mut hloss = hgrad * q_abs / n;
+    // use linear function for very small gradient
+    let mut hloss = if hgrad < RQ_TOL {
+      hgrad = RQ_TOL;
+      hgrad * q_abs
+    } else {
+      hgrad * q_abs / n
+    };
 
     // contribution of minor losses
     if ml > 0.0 {
@@ -88,7 +93,7 @@ impl LinkTrait for Pipe {
   }
 
   fn update_status(&self, _: LinkStatus, _: f64, _: f64, _: f64) -> Option<LinkStatus> {
-    None
+    None // no status change
   }
 }
 
@@ -136,10 +141,10 @@ impl Pipe {
 
     if w >= A1 {
       // let y1 = A8 / w.powf(0.9);
-      let y1 = A8 / fastapprox::faster::pow(w as f32, 0.9) as f64;
+      let y1 = A8 / fastapprox::fast::pow(w as f32, 0.9) as f64;
       let y2 = e / 3.7 + y1;
       // let y3 = A9 * y2.ln();
-      let y3 = A9 * fastapprox::faster::ln(y2 as f32) as f64;
+      let y3 = A9 * fastapprox::fast::ln(y2 as f32) as f64;
       let f = 1.0 / y3.powi(2);
       let dfdq = 1.8 * f * y1 * A9 / y2 / y3 / q;
 
@@ -149,7 +154,7 @@ impl Pipe {
     } else {
       let y2 = e / 3.7 + AB;
       //let y3 = A9 * y2.ln();
-      let y3 = A9 * fastapprox::faster::ln(y2 as f32) as f64;
+      let y3 = A9 * fastapprox::fast::ln(y2 as f32) as f64;
       let fa = 1.0 / (y3*y3);
       let fb = (2.0 + AC / (y2*y3)) * fa;
       let r = w / A2;
