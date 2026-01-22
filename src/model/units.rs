@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum FlowUnits {
   // Imperial units
   CFS,  // Cubic feet per second
-  GMP,  // Gallons per minute
+  GPM,  // Gallons per minute
   MGD,  // Million gallons per day
   IMGD, // Imperial million gallons per day
   AFD,  // Acre-feet per day
@@ -26,7 +26,7 @@ impl FromStr for FlowUnits {
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     match s.to_uppercase().as_str() {
       "CFS" => Ok(FlowUnits::CFS),
-      "GMP" => Ok(FlowUnits::GMP),
+      "GPM" => Ok(FlowUnits::GPM),
       "MGD" => Ok(FlowUnits::MGD),
       "IMGD" => Ok(FlowUnits::IMGD),
       "AFD" => Ok(FlowUnits::AFD),
@@ -74,7 +74,7 @@ impl FlowUnits {
   pub fn per_cfs(&self) -> f64 {
     match self {
       FlowUnits::CFS => 1.0,
-      FlowUnits::GMP => GPMperCFS,
+      FlowUnits::GPM => GPMperCFS,
       FlowUnits::MGD => MGDperCFS,
       FlowUnits::IMGD => IMGDperCFS,
       FlowUnits::AFD => AFDperCFS,

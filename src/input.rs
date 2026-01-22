@@ -444,7 +444,7 @@ impl Network {
         
         // set the unit system based on the flow units
         self.options.unit_system = match self.options.flow_units {
-          FlowUnits::CFS | FlowUnits::GMP | FlowUnits::MGD | FlowUnits::IMGD | FlowUnits::AFD => UnitSystem::US,
+          FlowUnits::CFS | FlowUnits::GPM | FlowUnits::MGD | FlowUnits::IMGD | FlowUnits::AFD => UnitSystem::US,
           FlowUnits::LPS | FlowUnits::LPM | FlowUnits::MLD | FlowUnits::CMS | FlowUnits::CMH | FlowUnits::CMD => UnitSystem::SI,
         };
         // set the default pressure units based on the unit system
