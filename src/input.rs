@@ -500,6 +500,9 @@ impl Network {
         }
 
       }
+      "DEMAND" => {
+        self.options.demand_multiplier = parts.next().unwrap().parse::<f64>().unwrap();
+      },
       "HEADLOSS" => {
         self.options.headloss_formula = match value.to_uppercase().as_str() {
           "H-W" => HeadlossFormula::HazenWilliams,

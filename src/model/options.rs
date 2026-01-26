@@ -38,6 +38,8 @@ pub struct SimulationOptions {
   pub unit_system: UnitSystem,
   pub headloss_formula: HeadlossFormula,
 
+  pub demand_multiplier: f64,
+
   pub max_trials: usize,
   pub accuracy: f64,
   pub check_frequency: usize,
@@ -56,6 +58,7 @@ impl Default for SimulationOptions {
       pressure_units: PressureUnits::FEET,
       unit_system: UnitSystem::US,
       headloss_formula: HeadlossFormula::HazenWilliams,
+      demand_multiplier: 1.0,
       max_trials: 40,
       accuracy: 0.001,
       check_frequency: 2,

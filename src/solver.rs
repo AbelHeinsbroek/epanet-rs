@@ -525,10 +525,10 @@ impl<'a> HydraulicSolver<'a> {
               let pattern = &self.network.patterns[pattern_id];
               // get the multiplier for the pattern index (wrap around if needed)
               let multiplier = pattern.multipliers[pattern_index % pattern.multipliers.len()];
-              return junction.basedemand * multiplier;
+              return junction.basedemand * multiplier * self.network.options.demand_multiplier;
             }
             // if no pattern, return the basedemand
-            return junction.basedemand
+            return junction.basedemand * self.network.options.demand_multiplier;
           } else {
             return 0.0;
           }
