@@ -18,7 +18,8 @@
 - [x] Coeff stability checks (pipe, valve, pump) (RQTol)
 - [x] FCV with Curve
 - [x] Implement GPV
-- [ ] Implement tank logic
+- [x] Implement tank logic
+- [ ] Tanks with volume curve
 - [ ] Fixed power pumps
 - [ ] Unit conversion when serializing using Serde
 - [ ] Setup unit and integration testing
