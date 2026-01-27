@@ -32,7 +32,7 @@ impl LinkTrait for Valve {
   fn coefficients(&self, q: f64, _resistance: f64, status: LinkStatus, excess_flow_upstream: f64, excess_flow_downstream: f64) -> LinkCoefficients {
 
     // if the valve is closed or XPressure, return a high resistance valve
-    if status == LinkStatus::Closed || status == LinkStatus::XPressure || status == LinkStatus::TempClosed {
+    if status == LinkStatus::Closed || status == LinkStatus::TempClosed {
       return LinkCoefficients::simple(1.0/BIG_VALUE, q);
     }
 
@@ -77,7 +77,12 @@ impl LinkTrait for Valve {
         }
       }
       ValveType::PSV => {
-        return self.psv_coefficients(excess_flow_upstream);
+        if status == LinkStatus::Active {
+          return self.psv_coefficients(excess_flow_upstream);
+        }
+        else {
+          return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
+        }
       }
       ValveType::GPV => {
         return self.gpv_coefficients(q);
