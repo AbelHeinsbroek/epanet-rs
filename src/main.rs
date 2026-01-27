@@ -151,16 +151,18 @@ fn convert_network(input_file: &str, output_file: &str) {
   println!("Network saved in {:?}", end_time.duration_since(load_time));
 }
 
-/// Round a value to a given number of decimal places
-fn round_to(value: f64, precision: u32) -> f64 {
-  let factor = 10_f64.powi(precision as i32);
-  (value * factor).round() / factor
+/// Check if two values are equal within a tolerance based on decimal precision
+/// For precision=2, tolerance is 0.005 (half of 0.01)
+fn values_equal(a: f64, b: f64, precision: u32) -> bool {
+  let tolerance = 0.5 * 10_f64.powi(-(precision as i32));
+  (a - b).abs() <= tolerance
 }
 
 /// Validate the results of a network with EPANET
 fn validate_network(input_file: &str, precision: u32) {
+  let tolerance = 0.5 * 10_f64.powi(-(precision as i32));
   println!("Loading network from file: {}", input_file);
-  println!("Using precision: {} decimal places", precision);
+  println!("Using precision: {} decimal places (tolerance: {})", precision, tolerance);
 
   // check if the input file is a .inp file
   if !input_file.ends_with(".inp") {
@@ -196,12 +198,11 @@ fn validate_network(input_file: &str, precision: u32) {
   // compare the heads
   for i in 0..rs_result.heads.len() {
     for j in 0..rs_result.heads[i].len() {
-      let rs_rounded = round_to(rs_result.heads[i][j], precision);
-      let epanet_rounded = round_to(epanet_results.heads[i][j], precision);
-      if rs_rounded != epanet_rounded {
+      if !values_equal(rs_result.heads[i][j], epanet_results.heads[i][j], precision) {
         if head_mismatches < 5 {
-          println!("Head mismatch at node {} in period {}: {:.prec$} != {:.prec$} (raw: {} vs {})", 
-            j, i, rs_rounded, epanet_rounded, rs_result.heads[i][j], epanet_results.heads[i][j], prec = precision as usize);
+          let diff = (rs_result.heads[i][j] - epanet_results.heads[i][j]).abs();
+          println!("Head mismatch at node {} in period {}: {} vs {} (diff: {:.6})", 
+            j, i, rs_result.heads[i][j], epanet_results.heads[i][j], diff);
         }
         head_mismatches += 1;
       }
@@ -211,12 +212,11 @@ fn validate_network(input_file: &str, precision: u32) {
   // compare the flows
   for i in 0..rs_result.flows.len() {
     for j in 0..rs_result.flows[i].len() {
-      let rs_rounded = round_to(rs_result.flows[i][j], precision);
-      let epanet_rounded = round_to(epanet_results.flows[i][j], precision);
-      if rs_rounded != epanet_rounded {
+      if !values_equal(rs_result.flows[i][j], epanet_results.flows[i][j], precision) {
         if flow_mismatches < 5 {
-          println!("Flow mismatch at link {} in period {}: {:.prec$} != {:.prec$} (raw: {} vs {})", 
-            j, i, rs_rounded, epanet_rounded, rs_result.flows[i][j], epanet_results.flows[i][j], prec = precision as usize);
+          let diff = (rs_result.flows[i][j] - epanet_results.flows[i][j]).abs();
+          println!("Flow mismatch at link {} in period {}: {} vs {} (diff: {:.6})", 
+            j, i, rs_result.flows[i][j], epanet_results.flows[i][j], diff);
         }
         flow_mismatches += 1;
       }
