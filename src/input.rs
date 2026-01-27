@@ -502,7 +502,15 @@ impl Network {
 
       }
       "DEMAND" => {
-        self.options.demand_multiplier = parts.next().unwrap().parse::<f64>().unwrap();
+        let next_part = value.trim().to_uppercase();
+        if next_part == "MULTIPLIER" {
+          self.options.demand_multiplier = parts.next().unwrap().parse::<f64>().unwrap();
+        } else {
+          let model = parts.next().unwrap().trim().to_uppercase();
+          if model == "PDA" {
+            panic!("PDA demand model is not supported yet!");
+          }
+        }
       },
       "HEADLOSS" => {
         self.options.headloss_formula = match value.to_uppercase().as_str() {
