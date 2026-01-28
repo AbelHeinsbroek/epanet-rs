@@ -170,8 +170,8 @@ impl Network {
         // get the head curve
         if let Some(head_curve_id) = &pump.head_curve_id {
           let curve = self.curves.get(head_curve_id).unwrap_or_else(|| panic!("Head curve not found for pump {}", head_curve_id));
-          // assign the head curve to the pump
-          pump.head_curve = Some(HeadCurve::new(Arc::new(curve.clone())));
+          // assign the head curve to the pump and convert units to standard units (US standard) and CFS
+          pump.head_curve = Some(HeadCurve::new(curve, &self.options.flow_units, &self.options.unit_system));
         }
       }
       if let LinkType::Valve(valve) = &mut link.link_type {
@@ -179,9 +179,9 @@ impl Network {
         if valve.valve_type == ValveType::PSV {
           valve.setting += self.nodes[link.start_node].elevation;
         }
-        // if the valve is a PRV, subtract the elevation of the end node from the setting
+        // if the valve is a PRV, add the elevation of the end node from the setting
         if valve.valve_type == ValveType::PRV {
-          valve.setting -= self.nodes[link.end_node].elevation;
+          valve.setting += self.nodes[link.end_node].elevation;
         }
         // assign the valve curve to the valve
         if let Some(curve_id) = &valve.curve_id {
@@ -545,6 +545,19 @@ impl Network {
       "MAXCHECK" => {
         self.options.max_check = value.parse::<usize>().unwrap();
       },
+      "PATTERN" => {
+        let pattern: Box<str> = value.into();
+        if self.patterns.contains_key(&pattern) {
+          // set the default pattern to all junctions without a pattern
+          for node in self.nodes.iter_mut() {
+            if let NodeType::Junction(junction) = &mut node.node_type {
+              if junction.pattern.is_none() {
+                junction.pattern = Some(value.into());
+              }
+            }
+          }
+        }
+      }
       _ => ()
     }
   }
@@ -627,7 +640,10 @@ impl Network {
         _ => panic!("Status can only be set for valves and pumps"),
       }
     } else {
-      link.initial_status = LinkStatus::from_str(status);
+      // if the link is a valve, set the status as fixed open or fixed closed
+      let is_valve = matches!(link.link_type, LinkType::Valve(_));
+
+      link.initial_status = LinkStatus::from_str(status, is_valve);
     }
   }
 }

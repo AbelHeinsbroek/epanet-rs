@@ -19,8 +19,8 @@
 - [x] FCV with Curve
 - [x] Implement GPV
 - [x] Implement tank logic
+- [x] Fixed power pumps
 - [ ] Tanks with volume curve
-- [ ] Fixed power pumps
 - [ ] Unit conversion when serializing using Serde
 - [ ] Setup unit and integration testing
 - [ ] Get rid of all the Panics and Unwraps, use Result instead

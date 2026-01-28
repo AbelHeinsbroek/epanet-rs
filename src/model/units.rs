@@ -69,6 +69,15 @@ pub enum UnitSystem {
   SI, // International System of Units (metric)
 }
 
+impl UnitSystem {
+  pub fn per_feet(&self) -> f64 {
+    match self {
+      UnitSystem::US => 1.0,
+      UnitSystem::SI => MperFT,
+    }
+  }
+}
+
 impl FlowUnits {
   // convert the flow units to standard units (US standard) and CFS
   pub fn per_cfs(&self) -> f64 {

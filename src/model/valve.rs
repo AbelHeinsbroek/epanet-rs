@@ -31,10 +31,16 @@ pub struct Valve {
 impl LinkTrait for Valve {
   fn coefficients(&self, q: f64, _resistance: f64, status: LinkStatus, excess_flow_upstream: f64, excess_flow_downstream: f64) -> LinkCoefficients {
 
-    // if the valve is closed or XPressure, return a high resistance valve
-    if status == LinkStatus::Closed || status == LinkStatus::TempClosed {
+    // if the valve is closed, fixed closed, or XPressure, return a high resistance valve
+    if status == LinkStatus::Closed || status == LinkStatus::TempClosed || status == LinkStatus::FixedClosed {
       return LinkCoefficients::simple(1.0/BIG_VALUE, q);
     }
+
+    // if the valve is open or fixed open
+    if status == LinkStatus::Open || status == LinkStatus::FixedOpen {
+      return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
+    }
+
 
     match self.valve_type {
       // Throttle Control Valve (TCV)
@@ -69,20 +75,10 @@ impl LinkTrait for Valve {
       }
       // Pressure Reducing Valve (PRV)
       ValveType::PRV => {
-        if status == LinkStatus::Active {
-          return self.prv_coefficients(excess_flow_downstream);
-        }
-        else {
-          return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
-        }
+        return self.prv_coefficients(excess_flow_downstream);
       }
       ValveType::PSV => {
-        if status == LinkStatus::Active {
-          return self.psv_coefficients(excess_flow_upstream);
-        }
-        else {
-          return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
-        }
+        return self.psv_coefficients(excess_flow_upstream);
       }
       ValveType::GPV => {
         return self.gpv_coefficients(q);
@@ -301,7 +297,7 @@ impl UnitConversion for Valve {
 
     // for FCV, convert the setting to CFS
     if self.valve_type == ValveType::FCV {
-      self.setting = self.setting * flow.per_cfs();
+      self.setting = self.setting / flow.per_cfs();
     }
 
 

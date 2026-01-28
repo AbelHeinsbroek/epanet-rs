@@ -11,16 +11,17 @@ use crate::model::node::NodeType;
 use crate::model::link::{LinkType, LinkTrait, LinkStatus};
 use crate::model::network::Network;
 use crate::model::valve::ValveType;
-use crate::model::units::{FlowUnits, PressureUnits};
+use crate::model::units::{FlowUnits, UnitSystem};
 
 #[derive(Serialize)]
 pub struct SolverResult {
   pub flows: Vec<Vec<f64>>,
-  pub heads: Vec<Vec<f64>>
+  pub heads: Vec<Vec<f64>>,
+  pub demands: Vec<Vec<f64>>,
 }
 impl SolverResult {
   // convert the solver units back to the original units
-  pub fn convert_units(&mut self, flow_units: &FlowUnits, pressure_units: &PressureUnits) {
+  pub fn convert_units(&mut self, flow_units: &FlowUnits, unit_system: &UnitSystem) {
     for flow in self.flows.iter_mut() {
       for flow in flow.iter_mut() {
         *flow = *flow * flow_units.per_cfs();
@@ -28,10 +29,22 @@ impl SolverResult {
     }
     for head in self.heads.iter_mut() {
       for head in head.iter_mut() {
-        *head = *head * pressure_units.per_feet();
+        *head = *head * unit_system.per_feet();
+      }
+    }
+    for demand in self.demands.iter_mut() {
+      for demand in demand.iter_mut() {
+        *demand = *demand * flow_units.per_cfs();
       }
     }
   }
+}
+
+pub struct StepResult {
+  pub flows: Vec<f64>,
+  pub heads: Vec<f64>,
+  pub demands: Vec<f64>,
+  pub statuses: Vec<LinkStatus>,
 }
 
 pub struct FlowBalance {
@@ -86,6 +99,7 @@ impl<'a> HydraulicSolver<'a> {
     // initialize the flows and heads result vectors
     let mut flows: Vec<Vec<f64>> = vec![vec![0.0; self.network.links.len()]; steps];
     let mut heads: Vec<Vec<f64>> = vec![vec![0.0; self.network.nodes.len()]; steps];
+    let mut demands: Vec<Vec<f64>> = vec![vec![0.0; self.network.nodes.len()]; steps];
 
     // set the initial flows
     let mut initial_flows: Vec<f64> = self.get_initial_flows();
@@ -102,50 +116,52 @@ impl<'a> HydraulicSolver<'a> {
         panic!("Networks with tanks cannot be solved in parallel");
       }
       // solve the first step to use as initial values for the next, parallel computed steps
-      let (flow, head, statuses) = self.solve(&initial_flows, &initial_heads, &initial_statuses, 0, verbose).unwrap();
+      let step_result = self.solve(&initial_flows, &initial_heads, &initial_statuses, 0, verbose).unwrap();
 
       // store the results
-      flows[0] = flow.clone();
-      heads[0] = head.clone();
+      flows[0] = step_result.flows.clone();
+      heads[0] = step_result.heads.clone();
+      demands[0] = step_result.demands.clone();
 
       // update the initial flows and heads for the next step
-      initial_flows = flow;
-      initial_heads = head;
-      initial_statuses = statuses.clone();
+      initial_flows = step_result.flows.clone();
+      initial_heads = step_result.heads.clone();
+      initial_statuses = step_result.statuses.clone();
 
       // do parallel solves using Rayon
-      let results: Vec<(Vec<f64>, Vec<f64>, _)> = (1..steps).into_par_iter().map(|step| {
+      let results: Vec<StepResult> = (1..steps).into_par_iter().map(|step| {
         self.solve(&initial_flows, &initial_heads, &initial_statuses, step, verbose).unwrap()
       }).collect();
-      for (step, (flow, head, _)) in results.iter().enumerate() {
-        flows[step+1] = flow.clone();
-        heads[step+1] = head.clone();
+      for (step, step_result) in results.iter().enumerate() {
+        flows[step+1] = step_result.flows.clone();
+        heads[step+1] = step_result.heads.clone();
+        demands[step+1] = step_result.demands.clone();
       }
-
     } else {
       // do sequential solves
       for step in 0..steps {
-        let (flow, head, statuses) = self.solve(&initial_flows, &initial_heads, &initial_statuses, step, verbose).unwrap();
-        flows[step] = flow.clone();
-        heads[step] = head.clone();
-        initial_flows = flow;
-        initial_heads = head;
-        initial_statuses = statuses.clone();
+        let step_result = self.solve(&initial_flows, &initial_heads, &initial_statuses, step, verbose).unwrap();
+        flows[step] = step_result.flows.clone();
+        heads[step] = step_result.heads.clone();
+        demands[step] = step_result.demands.clone();
+        initial_flows = step_result.flows.clone();
+        initial_heads = step_result.heads.clone();
+        initial_statuses = step_result.statuses.clone();
         // update the heads of the tanks (= elevation + level) before running the next step
         if steps > 1 {
           self.update_tanks(&initial_flows, &mut initial_heads);
         }
       }
     }
-    let mut result = SolverResult { flows, heads };
+    let mut result = SolverResult { flows, heads, demands };
     // convert the units back to the original units
-    result.convert_units(&self.network.options.flow_units, &self.network.options.pressure_units);
+    result.convert_units(&self.network.options.flow_units, &self.network.options.unit_system);
     result
   }
 
   /// Solve the network using the Global Gradient Algorithm (Todini & Pilati, 1987) for a single step
   /// Returns the flows and heads
-  fn solve(&self, initial_flows: &Vec<f64>, initial_heads: &Vec<f64>, initial_statuses: &Vec<LinkStatus>, step: usize, verbose: bool) -> Result<(Vec<f64>, Vec<f64>, Vec<LinkStatus>), String> {
+  fn solve(&self, initial_flows: &Vec<f64>, initial_heads: &Vec<f64>, initial_statuses: &Vec<LinkStatus>, step: usize, verbose: bool) -> Result<StepResult, String> {
 
     let time_options = &self.network.options.time_options;
     let mut flows = initial_flows.clone();
@@ -167,6 +183,7 @@ impl<'a> HydraulicSolver<'a> {
 
     // gather demands
     let demands: Vec<f64> = self.get_demands(pattern_index);
+
     // gather link initial statuses
     let mut statuses: Vec<LinkStatus> = initial_statuses.clone();
 
@@ -337,7 +354,7 @@ impl<'a> HydraulicSolver<'a> {
           println!("Converged in {} iterations: Error = {:.4}, Supply = {:.4}, Demand = {:.4}", iteration, flow_balance.error, flow_balance.total_supply, flow_balance.total_demand);
         }
 
-        return Ok((flows, heads, statuses));
+        return Ok(StepResult { flows, heads, demands, statuses });
       }
     }
     Err(format!("Maximum number of iterations reached: {}", self.network.options.max_trials))

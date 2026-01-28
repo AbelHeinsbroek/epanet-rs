@@ -44,16 +44,15 @@ pub enum LinkStatus {
   Xflow,         // pump exceeds maximum flow
   XFCV,          // FCV cannot supply flow
   XPressure,     // valve cannot supply pressure
-  Filling,       // tank filling
-  Emptying,      // tank emptying
-  Overflowing    // tank overflowing
+  FixedOpen,     // fixed open 
+  FixedClosed,   // fixed closed
 }
 
 impl LinkStatus {
-  pub fn from_str(status: &str) -> LinkStatus {
+  pub fn from_str(status: &str, is_valve: bool) -> LinkStatus {
     match status.to_uppercase().as_str() {
-      "CLOSED" => LinkStatus::Closed,
-      "OPEN" => LinkStatus::Open,
+      "CLOSED" => if is_valve { LinkStatus::FixedClosed } else { LinkStatus::Closed },
+      "OPEN" => if is_valve { LinkStatus::FixedOpen } else { LinkStatus::Open },
       "ACTIVE" => LinkStatus::Active,
       _ => panic!("Invalid link status {}", status)
     }

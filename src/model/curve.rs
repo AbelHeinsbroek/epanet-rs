@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use crate::constants::*;
+use crate::model::units::{FlowUnits, UnitSystem};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Curve {
@@ -24,10 +24,10 @@ impl Curve {
   }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct HeadCurve {
-  pub curve: Arc<Curve>,
+  pub flows: Vec<f64>,
+  pub heads: Vec<f64>,
   pub curve_type: HeadCurveType,
   pub statistics: HeadCurveStatistics,
 }
@@ -50,34 +50,51 @@ pub struct HeadCurveStatistics {
 }
 
 impl HeadCurve {
-  pub fn new(curve: Arc<Curve>) -> Self {
-    // precompute the curve statistics
-    let statistics = Self::compute_curve_statistics(&curve);
+  pub fn new(curve: &Curve, flow_units: &FlowUnits, system: &UnitSystem) -> Self {
 
-    if !Self::validate_curve(&curve) {
+    // convert the flow and head values to the standard units (CFS and Feet)
+    let flows = curve.x.iter().map(|x| x / flow_units.per_cfs()).collect();
+    let heads = curve.y.iter().map(|y| y / system.per_feet()).collect();
+
+    // precompute the curve statistics
+    let statistics = Self::compute_curve_statistics(&flows, &heads);
+
+    if !Self::validate_curve(&flows, &heads) {
       panic!("Invalid head curve: Head is not decreasing or flow is not increasing monotonically");
     }
 
-    let curve_type = match (curve.x.len(), curve.x[0] == 0.0) {
+    let curve_type = match (flows.len(), flows[0] == 0.0) {
       (1, _) => HeadCurveType::SinglePoint,
       (3, true) => HeadCurveType::ThreePointWithShutoff,
       _ => HeadCurveType::Custom,
     };
 
     Self {
-      curve: curve,
+      flows: flows,
+      heads: heads,
       curve_type: curve_type,
       statistics: statistics,
     }
   }
+  pub fn coefficients(&self, q: f64) -> (f64, f64) {
+    // find the index of the curve segment that contains the flow
+    // clamp the index to the valid range
+    let x2 = self.flows.partition_point(|&x| x < q).max(1).min(self.flows.len()-1);
+    let x1 = x2 - 1;
+    let y1 = self.heads[x1];
+    let y2 = self.heads[x2];
+    let r = (y2 - y1) / (self.flows[x2] - self.flows[x1]);
+    let h0 = y1 - r * self.flows[x1];
+    (h0, r)
+  }
 
   // Calculate the maximum head, minimum head, and maximum flow from the curve
-  pub fn compute_curve_statistics(curve: &Curve) -> HeadCurveStatistics {
+  pub fn compute_curve_statistics(flows: &Vec<f64>, heads: &Vec<f64>) -> HeadCurveStatistics {
 
-    if curve.x.len() == 1 {
+    if flows.len() == 1 {
 
-      let q = curve.x[0];
-      let h = curve.y[0];
+      let q = flows[0];
+      let h = heads[0];
 
       // compute the coefficients for the head curve
       let a = h * 4.0 / 3.0; // maximum head / shutoff head
@@ -93,14 +110,14 @@ impl HeadCurve {
       }
     }
     // three point curve with shutoff head at zero
-    else if curve.x.len() == 3 && curve.x[0] == 0.0 {
+    else if flows.len() == 3 && flows[0] == 0.0 {
       // try to calculate head curve statistics from three points
       // (EPANET powercurve method)
-      let h0 = curve.y[0]; // shutoff head
-      let h1 = curve.y[1]; // design head
-      let h2 = curve.y[2]; // head at maximum flow
-      let q1 = curve.x[1]; // design flow
-      let q2 = curve.x[2]; // max flow
+      let h0 = heads[0]; // shutoff head
+      let h1 = heads[1]; // design head
+      let h2 = heads[2]; // head at maximum flow
+      let q1 = flows[1]; // design flow
+      let q2 = flows[2]; // max flow
 
       let mut valid = true;
 
@@ -130,9 +147,9 @@ impl HeadCurve {
     }
     else {
       // return head curve statistics for a custom curve
-      let q_max = curve.x[curve.x.len()-1];
-      let q_initial = (curve.x[0] + q_max) / 2.0;
-      let h_max = curve.y[0];
+      let q_max = flows[flows.len()-1];
+      let q_initial = (flows[0] + q_max) / 2.0;
+      let h_max = heads[0];
 
       return HeadCurveStatistics {
         h_max: h_max,
@@ -145,9 +162,9 @@ impl HeadCurve {
     }
   }
   /// Validate the curve to ensure the head is decreasing and the flow is increasing monotonically
-  pub fn validate_curve(curve: &Curve) -> bool {
-    for i in 1..curve.y.len() {
-      if curve.x[i] <= curve.x[i-1] || curve.y[i] >= curve.y[i-1] {
+  pub fn validate_curve(flows: &Vec<f64>, heads: &Vec<f64>) -> bool {
+    for i in 1..heads.len() {
+      if flows[i] <= flows[i-1] || heads[i] >= heads[i-1] {
         return false;
       }
     }
@@ -158,7 +175,7 @@ impl HeadCurve {
     // speed adjust the flow
     let q_adjusted = q / speed;
     // compute the coefficients of the curve segment that contains the speed adjusted flow
-    let (h0, r) = self.curve.coefficients(q_adjusted);
+    let (h0, r) = self.coefficients(q_adjusted);
 
     let mut hgrad = -r * speed;
     let mut hloss = -h0 * speed.powi(2) + hgrad * q;

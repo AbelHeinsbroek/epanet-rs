@@ -62,9 +62,15 @@ enum Commands {
   Validate {
     /// Input file to validate
     input_file: String,
-    /// Number of decimal places for comparison (default: 2)
-    #[arg(short, long, default_value = "2")]
-    precision: u32,
+    /// Relative tolerance (default: 0.001 = 0.1%)
+    #[arg(short, long, default_value = "0.001")]
+    rtol: f64,
+    /// Absolute tolerance (default: 0.01)
+    #[arg(short, long, default_value = "0.01")]
+    atol: f64,
+    /// Run in parallel
+    #[arg(short = 'P', long, default_value = "false")]
+    parallel: bool,
   },
 }
 
@@ -99,8 +105,8 @@ fn main() -> Result<(), String> {
       convert_network(&input_file, &output_file);
       Ok(())
     }
-    Commands::Validate { input_file, precision } => {
-      if validate_network(&input_file, precision) {
+    Commands::Validate { input_file, rtol, atol, parallel } => {
+      if validate_network(&input_file, rtol, atol, parallel) {
         Ok(())
       } else {
         Err("Validation failed".to_string())
@@ -171,18 +177,20 @@ fn convert_network(input_file: &str, output_file: &str) {
   info!("Network saved in {:?}", end_time.duration_since(load_time));
 }
 
-/// Check if two values are equal within a tolerance based on decimal precision
-/// For precision=2, tolerance is 0.005 (half of 0.01)
-fn values_equal(a: f64, b: f64, precision: u32) -> bool {
-  let tolerance = 0.5 * 10_f64.powi(-(precision as i32));
-  (a - b).abs() <= tolerance
+/// Check if two values are equal using hybrid tolerance (like numpy.isclose)
+/// |a - b| <= atol + rtol * max(|a|, |b|)
+/// - atol: absolute tolerance (dominates for small values near zero)
+/// - rtol: relative tolerance (dominates for larger values)
+fn values_equal(a: f64, b: f64, rtol: f64, atol: f64) -> bool {
+  let diff = (a - b).abs();
+  let max_val = a.abs().max(b.abs());
+  diff <= atol + rtol * max_val
 }
 
 /// Validate the results of a network with EPANET
-fn validate_network(input_file: &str, precision: u32) -> bool {
-  let tolerance = 0.5 * 10_f64.powi(-(precision as i32));
+fn validate_network(input_file: &str, rtol: f64, atol: f64, parallel: bool) -> bool {
   info!("Loading network from file: {}", input_file);
-  info!("Using precision: {} decimal places (tolerance: {})", precision, tolerance);
+  info!("Using tolerance: rtol={} ({}%), atol={}", rtol, rtol * 100.0, atol);
 
   // check if the input file is a .inp file
   if !input_file.ends_with(".inp") {
@@ -193,7 +201,7 @@ fn validate_network(input_file: &str, precision: u32) -> bool {
   let mut network = Network::default();
   network.read_file(input_file).expect("Failed to load network");
   let solver = HydraulicSolver::new(&network);
-  let rs_result = solver.run(false, false);
+  let rs_result = solver.run(parallel, false);
 
   info!("Running EPANET to validate results");
   
@@ -220,15 +228,17 @@ fn validate_network(input_file: &str, precision: u32) -> bool {
 
   let mut head_mismatches = 0;
   let mut flow_mismatches = 0;
+  let mut demand_mismatches = 0;
 
   // compare the heads
   for i in 0..rs_result.heads.len() {
     for j in 0..rs_result.heads[i].len() {
-      if !values_equal(rs_result.heads[i][j], epanet_results.heads[i][j], precision) {
+      if !values_equal(rs_result.heads[i][j], epanet_results.heads[i][j], rtol, atol) {
         if head_mismatches < 5 {
           let diff = (rs_result.heads[i][j] - epanet_results.heads[i][j]).abs();
-          warn!("Head mismatch at node '{}' in period {} (RS vs EPA): {} vs {} (diff: {:.6})", 
-            epanet_results.node_ids[j], i, rs_result.heads[i][j], epanet_results.heads[i][j], diff);
+          let allowed = atol + rtol * epanet_results.heads[i][j].abs();
+          warn!("Head mismatch at node '{}' in period {} (RS vs EPA): {} vs {} (diff: {:.4}, allowed: {:.4})", 
+            epanet_results.node_ids[j], i, rs_result.heads[i][j], epanet_results.heads[i][j], diff, allowed);
         }
         head_mismatches += 1;
       }
@@ -238,19 +248,44 @@ fn validate_network(input_file: &str, precision: u32) -> bool {
   // compare the flows
   for i in 0..rs_result.flows.len() {
     for j in 0..rs_result.flows[i].len() {
-      if !values_equal(rs_result.flows[i][j], epanet_results.flows[i][j], precision) {
+      if !values_equal(rs_result.flows[i][j], epanet_results.flows[i][j], rtol, atol) {
+        let diff = (rs_result.flows[i][j] - epanet_results.flows[i][j]).abs();
+        let allowed = atol + rtol * epanet_results.flows[i][j].abs();
         if flow_mismatches < 5 {
-          let diff = (rs_result.flows[i][j] - epanet_results.flows[i][j]).abs();
-          warn!("Flow mismatch at link '{}' in period {} (RS vs EPA): {} vs {} (diff: {:.6})", 
-            epanet_results.link_ids[j], i, rs_result.flows[i][j], epanet_results.flows[i][j], diff);
+          warn!("Flow mismatch at link '{}' in period {} (RS vs EPA): {} vs {} (diff: {:.4}, allowed: {:.4})", 
+            epanet_results.link_ids[j], i, rs_result.flows[i][j], epanet_results.flows[i][j], diff, allowed);
         }
         flow_mismatches += 1;
       }
     }
   }
 
-  if head_mismatches > 0 || flow_mismatches > 0 {
-    error!("Validation <on-red><b> FAILED </> : {} head mismatches, {} flow mismatches", head_mismatches, flow_mismatches);
+  // compare the node demands
+  for i in 0..rs_result.demands.len() {
+    for j in 0..rs_result.demands[i].len() {
+      if !values_equal(rs_result.demands[i][j], epanet_results.demands[i][j], rtol, atol) {
+        // skip results for fixed_head nodes
+        if network.nodes[j].is_fixed() {
+          continue;
+        }
+        let diff = (rs_result.demands[i][j] - epanet_results.demands[i][j]).abs();
+        let allowed = atol + rtol * epanet_results.demands[i][j].abs();
+        if demand_mismatches < 5 {
+          warn!("Demand mismatch at node '{}' in period {} (RS vs EPA): {} vs {} (diff: {:.4}, allowed: {:.4})", 
+            epanet_results.node_ids[j], i, rs_result.demands[i][j], epanet_results.demands[i][j], diff, allowed);
+        }
+        demand_mismatches += 1;
+      }
+    }
+  }
+
+  if head_mismatches > 0 || flow_mismatches > 0 || demand_mismatches > 0 {
+    error!(
+      "Validation <on-red><b> FAILED </> : {} head mismatches, {} flow mismatches, {} demand mismatches",
+      head_mismatches,
+      flow_mismatches,
+      demand_mismatches
+    );
     return false;
   } else {
     info!("Validation <on-green><b> PASSED! </>");

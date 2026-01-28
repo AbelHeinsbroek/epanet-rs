@@ -5,7 +5,8 @@ pub struct EPANETResults {
   pub node_ids: Vec<String>,
   pub link_ids: Vec<String>,
   pub flows: Vec<Vec<f64>>,
-  pub heads: Vec<Vec<f64>>
+  pub heads: Vec<Vec<f64>>,
+  pub demands: Vec<Vec<f64>>
 }
 
 /// Helper function to read a fixed length string from a byte array
@@ -39,6 +40,7 @@ pub fn read_outfile(filename: &str) -> EPANETResults {
 
   let mut flows = vec![vec![0.0; n_links]; n_periods];
   let mut heads = vec![vec![0.0; n_nodes]; n_periods];
+  let mut demands = vec![vec![0.0; n_nodes]; n_periods];
   let mut node_ids = Vec::<String>::with_capacity(n_nodes);
   let mut link_ids = Vec::<String>::with_capacity(n_links);
 
@@ -61,6 +63,11 @@ pub fn read_outfile(filename: &str) -> EPANETResults {
     let offset = index - prolog - energy;
     let period_index = offset / period;
     let period_offset = offset % period;
+    // read demands (1st block of node results)
+    if period_offset < n_nodes {
+      demands[period_index][period_offset] = fvalue as f64;
+      continue;
+    }
     // read heads (2nd block of node results)
     if period_offset >= n_nodes && period_offset < n_nodes * 2 {
       heads[period_index][period_offset - n_nodes] = fvalue as f64;
@@ -78,6 +85,7 @@ pub fn read_outfile(filename: &str) -> EPANETResults {
     node_ids,
     link_ids,
     flows,
-    heads
+    heads,
+    demands
   };
 }

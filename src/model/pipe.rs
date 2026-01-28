@@ -80,7 +80,7 @@ impl LinkTrait for Pipe {
   fn resistance(&self) -> f64 {
     match self.headloss_formula {
       HeadlossFormula::HazenWilliams => {
-        4.727 * self.roughness.powf(-1.852) * self.diameter.powf(-4.87) * self.length
+        4.727 * self.roughness.powf(-1.852) * self.diameter.powf(-4.871) * self.length
       }
       HeadlossFormula::DarcyWeisbach => {
         // D-W f factor is included in the resistance calculation
