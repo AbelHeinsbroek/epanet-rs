@@ -13,7 +13,7 @@ Modern applications of the EPANET solver, such as monte-carlo simulations, leak 
 
 `epanet-rs` is a modern reimplementation of the EPANET2 hydraulic solver written in Rust, designed to preserve the original algorithms and numerical behavior while enabling safer memory management, improved maintainability, and performance optimizations through multi-threading and SIMD acceleration.  
 
-`epanet-rs` runs about 3 times faster on a modern CPU then the original EPANET2_3 solver in sequential mode, and 8 times faster in parallel mode for extended period simulations for supported networks (no tanks/controls)!
+`epanet-rs` runs about as fast as the original EPANET2_3 solver in sequential mode, and up to 5 times faster in parallel mode for extended period simulations for supported networks (no tanks/controls)!
 
 ## Design Goals
 
@@ -28,19 +28,20 @@ Modern applications of the EPANET solver, such as monte-carlo simulations, leak 
 
 ```bash
 # Run simulation
-epanet-rs <network_file.inp>
+epanet-rs run <network_file.inp>
 
-# Run with output file (JSON or MessagePack)
-epanet-rs <network_file.inp> output.json
+# Run with output file (.json format)
+epanet-rs run <network_file.inp> output.json
 
-# Run with verbose output
-epanet-rs <network_file.inp> --verbose
+# Run with parallel solving (for extended period simulations without tanks/controls)
+epanet-rs run <network_file.inp> < --parallel
 
-# Run with parallel solving (for extended period simulations)
-epanet-rs <network_file.inp> --parallel
+# Convert network to different format (JSON or MessagePack)
+epanet-rs convert <network_file.inp> output.json
+epanet-rs convert <network_file.inp> output.msgpack
 
-# Print results to console
-epanet-rs <network_file.inp> --print-results
+# Validate results against EPANET
+epanet-rs validate <network_file.inp>
 ```
 
 ## Building
@@ -66,8 +67,9 @@ cargo test --test solver_test
 ## Supported Features and To-Do
 
 - [x] INP file support
-- [ ] Parallel Hydraulic Solver for extended period simulations
+- [x] Parallel Hydraulic Solver for extended period simulations
 - [ ] Quality simulations
+- [ ] Pressure dependent demand simulation
 - [ ] CONTROLS and RULES
 - [ ] EMITTERS and LEAKAGE
 - [ ] ENERGY
