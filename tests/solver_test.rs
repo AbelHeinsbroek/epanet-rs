@@ -31,7 +31,7 @@ fn verify_heads_and_flows(network: &Network, result: &SolverResult, expected_hea
 #[test]
 fn test_solve_pump_network() {
     let mut network = Network::default();
-    network.read_inp("networks/pump.inp").expect("Failed to load pump.inp");
+    network.read_inp("tests/pump.inp").expect("Failed to load pump.inp");
 
     let solver = HydraulicSolver::new(&network);
     let result = solver.run(false, false);
@@ -69,7 +69,7 @@ fn test_solve_pump_network() {
 #[test]
 fn test_solve_valve_network() {
   let mut network = Network::default();
-  network.read_inp("networks/valves.inp").expect("Failed to load valves.inp");
+  network.read_inp("tests/valves.inp").expect("Failed to load valves.inp");
 
   let solver = HydraulicSolver::new(&network);
   let result = solver.run(false, false);
@@ -120,7 +120,7 @@ fn test_solve_valve_network() {
 #[test]
 fn test_solve_tanks_network() {
   let mut network = Network::default();
-  network.read_inp("networks/tanks.inp").expect("Failed to load tanks.inp");
+  network.read_inp("tests/tanks.inp").expect("Failed to load tanks.inp");
 
   let solver = HydraulicSolver::new(&network);
   let result = solver.run(false, false);

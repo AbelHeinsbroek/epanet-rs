@@ -291,7 +291,8 @@ impl<'a> HydraulicSolver<'a> {
             continue 'gga;
           }
           // if no valves found, panic
-          panic!("Singular matrix – check connectivity: {}", index);
+          let node_index = self.node_to_unknown.iter().position(|&x| x.is_some() && x.unwrap() == index-1).unwrap();
+          panic!("Singular matrix – check connectivity at node '{}'", self.network.nodes[node_index].id);
         }
         Err(e) => {
           // if other error, panic

@@ -41,7 +41,6 @@ impl LinkTrait for Valve {
       return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
     }
 
-
     match self.valve_type {
       // Throttle Control Valve (TCV)
       ValveType::TCV => {
@@ -75,10 +74,20 @@ impl LinkTrait for Valve {
       }
       // Pressure Reducing Valve (PRV)
       ValveType::PRV => {
-        return self.prv_coefficients(excess_flow_downstream);
+        if status == LinkStatus::Active {
+          return self.prv_coefficients(excess_flow_downstream);
+        }
+        else {
+          return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
+        }
       }
       ValveType::PSV => {
-        return self.psv_coefficients(excess_flow_upstream);
+        if status == LinkStatus::Active {
+          return self.psv_coefficients(excess_flow_upstream);
+        }
+        else {
+          return LinkCoefficients::simple(1.0/SMALL_VALUE, q);
+        }
       }
       ValveType::GPV => {
         return self.gpv_coefficients(q);
