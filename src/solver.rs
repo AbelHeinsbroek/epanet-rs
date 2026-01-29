@@ -7,9 +7,10 @@ use faer::prelude::*;
 use serde::Serialize;
 use rayon::prelude::*;
 
-use simplelog::{warn, debug};
 
-use crate::constants::BIG_VALUE;
+use simplelog::{warn, debug, error};
+
+use crate::constants::{BIG_VALUE, Q_ZERO};
 use crate::model::node::NodeType;
 use crate::model::link::{LinkType, LinkTrait, LinkStatus};
 use crate::model::network::Network;
@@ -50,6 +51,27 @@ pub struct FlowBalance {
   pub total_demand: f64,
   pub total_supply: f64,
   pub error: f64,
+}
+
+pub struct ResistanceCoefficients {
+  pub g_inv: Vec<f64>,
+  pub y: Vec<f64>,
+}
+
+impl ResistanceCoefficients {
+  pub fn new(size: usize) -> Self {
+    Self { g_inv: vec![0.0; size], y: vec![0.0; size] }
+  }
+}
+
+#[derive(Default)]
+pub struct IterationStatistics {
+  pub sum_dq: f64,
+  pub sum_q: f64,
+  pub max_dq: f64,
+  pub max_dq_index: usize,
+  pub status_changed: bool,
+  pub relative_change: f64,
 }
 
 /// The solver state is the initial/final state of the solver for a single step
@@ -172,6 +194,7 @@ impl<'a> HydraulicSolver<'a> {
   fn solve(&self, state: &mut SolverState, step: usize) -> Result<SolverState, String> {
 
     debug!("Solving step {}...", step);
+
     // perform GGA iterations
     // solve the system of equations: A * h = rhs
     // where A is the Jacobian matrix, h is the vector of heads, and rhs is the vector of right-hand side values
@@ -180,16 +203,19 @@ impl<'a> HydraulicSolver<'a> {
 
     let unknown_nodes = self.node_to_unknown.iter().filter(|&x| x.is_some()).count();
 
+    // pre-allocate the Jacobian matrix values and the right-hand side values
     let mut values = vec![0.0; self.sparsity_pattern.as_ref().row_idx().len()]; // Jacobian matrix values
     let mut rhs = vec![0.0; unknown_nodes]; // (unknown nodes only)
 
-    let mut g_invs: Vec<f64> = vec![0.0; self.network.links.len()];
-    let mut ys: Vec<f64> = vec![0.0; self.network.links.len()];
+    // pre-allocate the link coefficients and the Jacobian matrix
+    let mut link_coefficients = ResistanceCoefficients::new(self.network.links.len());
     let mut jac = self.jac.clone();
 
+    // pre-allocate the excess flows vector
     let mut excess_flows = vec![0.0; self.network.nodes.len()];
 
     'gga: for iteration in 1..=self.network.options.max_trials {
+
       // reset values and rhs
       values.fill(0.0);
       rhs.fill(0.0);
@@ -202,63 +228,12 @@ impl<'a> HydraulicSolver<'a> {
       }
 
       // calculate excess flows at each node (needed for PSV/PRV valves)
-      for (i, demand) in state.demands.iter().enumerate() {
-        excess_flows[i] = -demand;
+      if self.network.contains_pressure_control_valve {
+        self.calculate_excess_flows(state, &mut excess_flows);
       }
-      for (i, link) in self.network.links.iter().enumerate() {
-        let q = state.flows[i];
-        excess_flows[link.start_node] -= q;
-        excess_flows[link.end_node] += q;
-      }
-
 
       // assemble Jacobian and RHS contributions from links
-      for (i, link) in self.network.links.iter().enumerate() {
-        let q = state.flows[i];
-        let csc_index = &self.csc_indices[i];
-        let coefficients = link.coefficients(q, state.resistances[i], state.statuses[i], excess_flows[link.start_node], excess_flows[link.end_node]);
-
-        g_invs[i] = coefficients.g_inv;
-        ys[i] = coefficients.y;
-
-        // update the status of the link if it has a new status
-        if let Some(status) = coefficients.new_status {
-          state.statuses[i] = status;
-        }
-
-        // Get the CSC indices for the start and end nodes
-        let u = self.node_to_unknown[link.start_node];
-        let v = self.node_to_unknown[link.end_node];
-
-        if let Some(i) = u {
-            values[csc_index.diag_u.unwrap()] += coefficients.g_inv;
-            rhs[i] -= q - coefficients.y;
-            if self.network.nodes[link.end_node].is_fixed() {
-              rhs[i] += coefficients.g_inv * state.heads[link.end_node];
-            }
-        }
-        if let Some(j) = v {
-            values[csc_index.diag_v.unwrap()] += coefficients.g_inv;
-            rhs[j] += q - coefficients.y;
-            if self.network.nodes[link.start_node].is_fixed() {
-              rhs[j] += coefficients.g_inv * state.heads[link.start_node];
-            }
-        }
-        if let (Some(_i), Some(_j)) = (u, v) {
-            values[csc_index.off_diag.unwrap()] -= coefficients.g_inv;
-        }
-
-        // apply the upstream/downstream modifications to the nodes (for PSV/PRV valves)
-        if let Some(upstream_modification) = coefficients.upstream_modification {
-          rhs[u.unwrap()] += upstream_modification.rhs_add;
-          values[csc_index.diag_u.unwrap()] += upstream_modification.diagonal_add;
-        }
-
-        if let Some(downstream_modification) = coefficients.downstream_modification {
-          rhs[v.unwrap()] += downstream_modification.rhs_add;
-          values[csc_index.diag_v.unwrap()] += downstream_modification.diagonal_add;
-        }
-      }
+      self.assemble_jacobian(state, &mut values, &mut rhs, &mut link_coefficients, &excess_flows);
 
       // solve the system of equations: J * dh = rhs
       jac.val_mut().copy_from_slice(&values);
@@ -274,7 +249,10 @@ impl<'a> HydraulicSolver<'a> {
           }
           // if no valves found, panic
           let node_index = self.node_to_unknown.iter().position(|&x| x.is_some() && x.unwrap() == index-1).unwrap();
-          panic!("Singular matrix – check connectivity at node '{}'", self.network.nodes[node_index+1].id);
+          let error_message = format!("Singular matrix: check connectivity at node '{}'", self.network.nodes[node_index+1].id);
+          error!("{}", error_message);
+          return Err(error_message);
+
         }
         Err(e) => {
           // if other error, panic
@@ -292,61 +270,19 @@ impl<'a> HydraulicSolver<'a> {
         }
       }
 
-      // gather solver statistics (TODO: move to a struct)
-      let mut sum_dq = 0.0;
-      let mut sum_q  = 0.0;
-      let mut status_changed = false;
-      let mut max_dq = 0.0;
-      let mut max_dq_index = 0;
+      // update flows and statuses and get the iteration statistics
+      let stats = self.update_links(state, &link_coefficients);
 
-      for (i, link) in self.network.links.iter().enumerate() {
-          // calculate the head difference between the start and end nodes
-          let dh = state.heads[link.start_node] - state.heads[link.end_node];
-
-          // calculate the 1/G_ij and Y_ij coefficients
-          let g_inv = g_invs[i];
-          let y = ys[i];
-        
-          // Flow update: dq = y - g_inv * dh
-          let dq = y - g_inv * dh;
-
-          if dq.abs() > max_dq {
-            max_dq = dq.abs();
-            max_dq_index = i;
-          }
-
-          // update the flow of the link
-          state.flows[i] -= dq;
-
-          // update the link status and check for status changes
-          let new_status = link.update_status(state.statuses[i], state.flows[i], state.heads[link.start_node], state.heads[link.end_node]);
-          if let Some(status) = new_status {
-            // ignore temporary closed status changes (Check valve) and pump status changes
-            if state.statuses[i] != LinkStatus::TempClosed && state.statuses[i] != LinkStatus::Xhead {
-              status_changed = true;
-            }
-            debug!("Status changed for link {} from {:?} to {:?}", link.id, state.statuses[i], status);
-            state.statuses[i] = status;
-          }
-
-          // update the sum of the absolute changes in flow and the sum of the absolute flows
-          sum_dq += dq.abs();
-          sum_q  += state.flows[i].abs();
-      }
-      // update links connected to tanks
+      // update links connected to tanks (close/open them based on tank level)
       self.update_tank_links(&state.flows, &state.heads, &mut state.statuses);
 
-      let rel_change = sum_dq / (sum_q + 1e-6);
-      // convert max_dq and max_dh to correct units
-      max_dq *= self.network.options.flow_units.per_cfs();
 
-      debug!(">> Iteration {}: Relative change: {:.6}, Status changed: {}", iteration, rel_change, status_changed);
-      debug!(">>>> Max flow change: {:.6} for link {}", max_dq, self.network.links[max_dq_index].id);
+      debug!(">> Iteration {}: Relative change: {:.6}, Status changed: {}", iteration, stats.relative_change, stats.status_changed);
+      debug!(">>>> Max flow change: {:.6} for link {}", stats.max_dq, self.network.links[stats.max_dq_index].id);
 
       let max_flow_change = self.network.options.max_flow_change.unwrap_or(BIG_VALUE);
 
-      if rel_change < self.network.options.accuracy && !status_changed && max_dq < max_flow_change {
-
+      if stats.relative_change < self.network.options.accuracy && !stats.status_changed && stats.max_dq < max_flow_change {
 
           let flow_balance = self.flow_balance(&state.demands, &state.flows);
           debug!("Converged in {} iterations: Error = {:.4}, Supply = {:.4}, Demand = {:.4}", iteration, flow_balance.error, flow_balance.total_supply, flow_balance.total_demand);
@@ -355,6 +291,111 @@ impl<'a> HydraulicSolver<'a> {
       }
     }
     Err(format!("Maximum number of iterations reached: {}", self.network.options.max_trials))
+  }
+  fn assemble_jacobian(&self, state: &mut SolverState, values: &mut Vec<f64>, rhs: &mut Vec<f64>, link_coefficients: &mut ResistanceCoefficients, excess_flows: &Vec<f64>) {
+    for (i, link) in self.network.links.iter().enumerate() {
+      let q = state.flows[i];
+      let csc_index = &self.csc_indices[i];
+      let coefficients = link.coefficients(q, state.resistances[i], state.statuses[i], excess_flows[link.start_node], excess_flows[link.end_node]);
+
+      link_coefficients.g_inv[i] = coefficients.g_inv;
+      link_coefficients.y[i] = coefficients.y;
+
+      // update the status of the link if it has a new status
+      if let Some(status) = coefficients.new_status {
+        state.statuses[i] = status;
+      }
+
+      // Get the CSC indices for the start and end nodes
+      let u = self.node_to_unknown[link.start_node];
+      let v = self.node_to_unknown[link.end_node];
+
+      if let Some(i) = u {
+          values[csc_index.diag_u.unwrap()] += coefficients.g_inv;
+          rhs[i] -= q - coefficients.y;
+          if self.network.nodes[link.end_node].is_fixed() {
+            rhs[i] += coefficients.g_inv * state.heads[link.end_node];
+          }
+      }
+      if let Some(j) = v {
+          values[csc_index.diag_v.unwrap()] += coefficients.g_inv;
+          rhs[j] += q - coefficients.y;
+          if self.network.nodes[link.start_node].is_fixed() {
+            rhs[j] += coefficients.g_inv * state.heads[link.start_node];
+          }
+      }
+      if let (Some(_i), Some(_j)) = (u, v) {
+          values[csc_index.off_diag.unwrap()] -= coefficients.g_inv;
+      }
+
+      // apply the upstream/downstream modifications to the nodes (for PSV/PRV valves)
+      if let Some(upstream_modification) = coefficients.upstream_modification {
+        rhs[u.unwrap()] += upstream_modification.rhs_add;
+        values[csc_index.diag_u.unwrap()] += upstream_modification.diagonal_add;
+      }
+
+      if let Some(downstream_modification) = coefficients.downstream_modification {
+        rhs[v.unwrap()] += downstream_modification.rhs_add;
+        values[csc_index.diag_v.unwrap()] += downstream_modification.diagonal_add;
+      }
+    }
+  }
+
+  fn calculate_excess_flows(&self, state: &SolverState, excess_flows: &mut Vec<f64>) {
+      // calculate excess flows at each node (needed for PSV/PRV valves)
+      for (i, demand) in state.demands.iter().enumerate() {
+        excess_flows[i] = -demand;
+      }
+      for (i, link) in self.network.links.iter().enumerate() {
+        let q = state.flows[i];
+        excess_flows[link.start_node] -= q;
+        excess_flows[link.end_node] += q;
+      }
+  }
+
+  fn update_links(&self, state: &mut SolverState, coefficients: &ResistanceCoefficients) -> IterationStatistics {
+
+    let mut stats = IterationStatistics::default();
+
+    for (i, link) in self.network.links.iter().enumerate() {
+      // calculate the head difference between the start and end nodes
+      let dh = state.heads[link.start_node] - state.heads[link.end_node];
+      // calculate the 1/G_ij and Y_ij coefficients
+      let g_inv = coefficients.g_inv[i];
+      let y = coefficients.y[i];
+    
+      // Flow update: dq = y - g_inv * dh
+      let dq = y - g_inv * dh;
+
+      if dq.abs() > stats.max_dq {
+        stats.max_dq = dq.abs();
+        stats.max_dq_index = i;
+      }
+
+      // update the flow of the link
+      state.flows[i] -= dq;
+
+      // update the link status and check for status changes
+      let new_status = link.update_status(state.statuses[i], state.flows[i], state.heads[link.start_node], state.heads[link.end_node]);
+      if let Some(status) = new_status {
+        // ignore temporary closed status changes (Check valve) and pump status changes
+        if state.statuses[i] != LinkStatus::TempClosed && state.statuses[i] != LinkStatus::Xhead {
+          stats.status_changed = true;
+        }
+        debug!("Status changed for link {} from {:?} to {:?}", link.id, state.statuses[i], status);
+        state.statuses[i] = status;
+      }
+
+      // update the sum of the absolute changes in flow and the sum of the absolute flows
+      stats.sum_dq += dq.abs();
+      stats.sum_q  += state.flows[i].abs();
+    }
+    // update the relative change
+    stats.relative_change = stats.sum_dq / (stats.sum_q + Q_ZERO);
+    // convert max_dq and max_dh to correct units
+    stats.max_dq *= self.network.options.flow_units.per_cfs();
+    // return the iteration statistics
+    stats
   }
 
   fn apply_patterns(&self, state: &mut SolverState, step: usize) {

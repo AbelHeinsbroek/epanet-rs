@@ -1,8 +1,9 @@
 use hashbrown::HashMap;
 
-use crate::model::link::Link;
+use crate::model::link::{Link, LinkType};
 use crate::model::node::{Node, NodeType};
 use crate::model::curve::Curve;
+use crate::model::valve::ValveType;
 use crate::model::pattern::Pattern;
 use crate::model::options::SimulationOptions;
 
@@ -28,6 +29,8 @@ pub struct Network {
     pub node_map: HashMap<Box<str>, usize>,
     #[serde(skip)]
     pub link_map: HashMap<Box<str>, usize>,
+    #[serde(skip)]
+    pub contains_pressure_control_valve: bool,
 }
 impl Network {
   /// Check if the network has any tanks
@@ -68,10 +71,16 @@ impl<'de> Deserialize<'de> for Network {
       .map(|(i, l)| (l.id.clone(), i))
       .collect();
 
-    // Update link start and end node indices
+    let mut contains_pressure_control_valve = false;
+    // Update link start and end node indices, and check if the network contains a pressure control valve
     for link in data.links.iter_mut() {
       link.start_node = *node_map.get(&link.start_node_id).unwrap();
       link.end_node = *node_map.get(&link.end_node_id).unwrap();
+      if let LinkType::Valve(valve) = &mut link.link_type {
+        if valve.valve_type == ValveType::PSV || valve.valve_type == ValveType::PRV {
+          contains_pressure_control_valve = true;
+        }
+      }
     }
 
     Ok(Network {
@@ -82,6 +91,7 @@ impl<'de> Deserialize<'de> for Network {
       patterns: data.patterns,
       node_map,
       link_map,
+      contains_pressure_control_valve,
     })
   }
 }

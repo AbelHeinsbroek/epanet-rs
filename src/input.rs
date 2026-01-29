@@ -188,10 +188,12 @@ impl Network {
         // if the valve is a PSV, add the elevation of the start node to the setting
         if valve.valve_type == ValveType::PSV {
           valve.setting += self.nodes[link.start_node].elevation;
+          self.contains_pressure_control_valve = true;
         }
         // if the valve is a PRV, add the elevation of the end node from the setting
         if valve.valve_type == ValveType::PRV {
           valve.setting += self.nodes[link.end_node].elevation;
+          self.contains_pressure_control_valve = true;
         }
         // assign the valve curve to the valve
         if let Some(curve_id) = &valve.curve_id {
