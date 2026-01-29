@@ -34,7 +34,7 @@ fn test_solve_pump_network() {
     network.read_inp("tests/pump.inp").expect("Failed to load pump.inp");
 
     let solver = HydraulicSolver::new(&network);
-    let result = solver.run(false, false);
+    let result = solver.run(false);
 
     // Expected heads (in feet)
     let expected_heads: Vec<(&str, f64)> = vec![
@@ -72,7 +72,7 @@ fn test_solve_valve_network() {
   network.read_inp("tests/valves.inp").expect("Failed to load valves.inp");
 
   let solver = HydraulicSolver::new(&network);
-  let result = solver.run(false, false);
+  let result = solver.run(false);
 
   // Expected heads (in CFS)
   let expected_flows: Vec<(&str, f64)> = vec![
@@ -123,7 +123,7 @@ fn test_solve_tanks_network() {
   network.read_inp("tests/tanks.inp").expect("Failed to load tanks.inp");
 
   let solver = HydraulicSolver::new(&network);
-  let result = solver.run(false, false);
+  let result = solver.run(false);
 
   let expected_heads: Vec<(&str, f64)> = vec![
     ("1", 15.00),

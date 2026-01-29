@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use clap::{Parser, Subcommand};
 
-use simplelog::{info, warn, error, debug, LevelFilter, TerminalMode, ColorChoice, Config, TermLogger, ConfigBuilder};
+use simplelog::{info, warn, error, debug, LevelFilter, TerminalMode, ColorChoice, TermLogger, ConfigBuilder};
 use simplelog::{format_description};
 
 
@@ -105,8 +105,8 @@ fn main() -> Result<(), String> {
 
   // Run the command
   match cli.command {
-    Commands::Run { input_file, output_file, parallel, verbose, print_results, quiet } => {
-      run_solver(&input_file, output_file.as_deref(), parallel, verbose, print_results, quiet);
+    Commands::Run { input_file, output_file, parallel, print_results, quiet, .. } => {
+      run_solver(&input_file, output_file.as_deref(), parallel, print_results, quiet);
       Ok(())
     }
     Commands::Convert { input_file, output_file } => {
@@ -125,7 +125,7 @@ fn main() -> Result<(), String> {
 }
 
 /// Run the hydraulic solver on a network
-fn run_solver(input_file: &str, output_file: Option<&str>, parallel: bool, verbose: bool, print_results: bool, quiet: bool) {
+fn run_solver(input_file: &str, output_file: Option<&str>, parallel: bool, print_results: bool, quiet: bool) {
   let start_time = Instant::now();
 
   if !quiet {
@@ -209,7 +209,7 @@ fn validate_network(input_file: &str, rtol: f64, atol: f64, parallel: bool) -> b
   let mut network = Network::default();
   network.read_file(input_file).expect("Failed to load network");
   let solver = HydraulicSolver::new(&network);
-  let rs_result = solver.run(parallel, false);
+  let rs_result = solver.run(parallel);
 
   info!("Running EPANET to validate results");
   

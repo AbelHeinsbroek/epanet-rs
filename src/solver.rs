@@ -7,9 +7,9 @@ use faer::prelude::*;
 use serde::Serialize;
 use rayon::prelude::*;
 
-use simplelog::{info, warn, error, debug};
+use simplelog::{warn, debug};
 
-use crate::constants::{BIG_VALUE, Q_ZERO};
+use crate::constants::BIG_VALUE;
 use crate::model::node::NodeType;
 use crate::model::link::{LinkType, LinkTrait, LinkStatus};
 use crate::model::network::Network;
@@ -27,7 +27,8 @@ impl SolverResult {
   pub fn new(n_links: usize, n_nodes: usize, n_steps: usize) -> Self {
     Self { flows: vec![vec![0.0; n_links]; n_steps], heads: vec![vec![0.0; n_nodes]; n_steps], demands: vec![vec![0.0; n_nodes]; n_steps] }
   }
-  pub fn append(&mut self, state: &SolverState, step: usize) {
+
+  fn append(&mut self, state: &SolverState, step: usize) {
     self.flows[step] = state.flows.clone();
     self.heads[step] = state.heads.clone();
     self.demands[step] = state.demands.clone();
@@ -35,21 +36,13 @@ impl SolverResult {
 
   // convert the solver units back to the original units
   pub fn convert_units(&mut self, flow_units: &FlowUnits, unit_system: &UnitSystem) {
-    for flow in self.flows.iter_mut() {
-      for flow in flow.iter_mut() {
-        *flow = *flow * flow_units.per_cfs();
-      }
-    }
-    for head in self.heads.iter_mut() {
-      for head in head.iter_mut() {
-        *head = *head * unit_system.per_feet();
-      }
-    }
-    for demand in self.demands.iter_mut() {
-      for demand in demand.iter_mut() {
-        *demand = *demand * flow_units.per_cfs();
-      }
-    }
+
+    let flow_scale = flow_units.per_cfs();
+    let head_scale = unit_system.per_feet();
+
+    self.flows.iter_mut().flatten().for_each(|flow| *flow *= flow_scale);
+    self.heads.iter_mut().flatten().for_each(|head| *head *= head_scale);
+    self.demands.iter_mut().flatten().for_each(|demand| *demand *= flow_scale);
   }
 }
 
@@ -59,24 +52,25 @@ pub struct FlowBalance {
   pub error: f64,
 }
 
+/// The solver state is the initial/final state of the solver for a single step
 #[derive(Debug, Clone)]
-struct SolverState {
-  flows: Vec<f64>,
-  heads: Vec<f64>,
-  demands: Vec<f64>,
-  statuses: Vec<LinkStatus>,
-  resistances: Vec<f64>,
+pub struct SolverState {
+  pub flows: Vec<f64>,
+  pub heads: Vec<f64>,
+  pub demands: Vec<f64>,
+  pub statuses: Vec<LinkStatus>,
+  pub resistances: Vec<f64>,
 }
 
 impl SolverState {
+  /// Create a new solver state with the initial values for the flows, heads, demands and statuses and calculate resistances
   pub fn new_with_initial_values(network: &Network) -> Self {
-    let state = Self { flows: network.links.iter().map(|l| l.initial_flow()).collect::<Vec<f64>>(), 
-                       heads: network.nodes.iter().map(|n| n.initial_head()).collect::<Vec<f64>>(), 
-                       demands: vec![0.0; network.nodes.len()], 
-                       statuses: network.links.iter().map(|l| l.initial_status).collect::<Vec<LinkStatus>>(),
-                       resistances: network.links.iter().map(|l| l.resistance()).collect::<Vec<f64>>(),
-                      };
-    state
+    Self { flows: network.links.iter().map(|l| l.initial_flow()).collect::<Vec<f64>>(), 
+           heads: network.nodes.iter().map(|n| n.initial_head()).collect::<Vec<f64>>(), 
+           demands: vec![0.0; network.nodes.len()], 
+           statuses: network.links.iter().map(|l| l.initial_status).collect::<Vec<LinkStatus>>(),
+           resistances: network.links.iter().map(|l| l.resistance()).collect::<Vec<f64>>(),
+         }
   }
 }
 
@@ -126,9 +120,12 @@ impl<'a> HydraulicSolver<'a> {
     // initialize the results struct
     let mut results = SolverResult::new(self.network.links.len(), self.network.nodes.len(), steps);
 
+    // calculate the initial state
     let mut state = SolverState::new_with_initial_values(self.network);
+
+    // check network is elegible for parallel solving if requested
     if self.network.has_tanks() && parallel {
-      warn!("Networks with tanks cannot be solved in parallel");
+      warn!("Networks with tanks cannot be solved in parallel, running sequentially");
       parallel = false;
     }
 
@@ -142,7 +139,10 @@ impl<'a> HydraulicSolver<'a> {
 
       // do parallel solves using Rayon
       let par_results: Vec<SolverState> = (1..steps).into_par_iter().map(|step| {
-        self.solve(&mut state.clone(), step).unwrap()
+        let mut state = state.clone();
+        // apply the head/demand patterns to the state
+        self.apply_patterns(&mut state, step);
+        self.solve(&mut state, step).unwrap()
       }).collect();
       for (step,step_result) in par_results.iter().enumerate() {
         results.append(step_result, step);
@@ -150,10 +150,12 @@ impl<'a> HydraulicSolver<'a> {
     } else {
       // do sequential solves
       for step in 0..steps {
+        // apply the head pattern to reservoirs with a head pattern
+        self.apply_patterns(&mut state, step);
         // solve the step, update the state
-        let mut state = self.solve(&mut state, step).unwrap();
-        results.append(&state, step);
+        state = self.solve(&mut state, step).unwrap();
         // update the heads of the tanks (= elevation + level) before running the next step
+        results.append(&state, step);
         if steps > 1 {
           self.update_tanks(&state.flows, &mut state.heads);
         }
@@ -161,6 +163,7 @@ impl<'a> HydraulicSolver<'a> {
     }
     // convert the units back to the original units
     results.convert_units(&self.network.options.flow_units, &self.network.options.unit_system);
+
     results
   }
 
@@ -169,26 +172,6 @@ impl<'a> HydraulicSolver<'a> {
   fn solve(&self, state: &mut SolverState, step: usize) -> Result<SolverState, String> {
 
     debug!("Solving step {}...", step);
-
-    let time_options = &self.network.options.time_options;
-
-    // get the time
-    let time = step * time_options.hydraulic_timestep;
-    // get the pattern time
-    let pattern_time = time_options.pattern_start + time;
-    // get pattern index
-    let pattern_index = pattern_time / time_options.pattern_timestep;
-
-    // apply the head pattern to reservoirs with a head pattern
-    for (i, node) in self.network.nodes.iter().enumerate() {
-      let Some(head_pattern) = node.head_pattern() else { continue };
-      let pattern = &self.network.patterns[head_pattern];
-      state.heads[i] = node.elevation * pattern.multipliers[pattern_index % pattern.multipliers.len()];
-    }
-
-    // gather demands
-    state.demands = self.get_demands(pattern_index);
-
     // perform GGA iterations
     // solve the system of equations: A * h = rhs
     // where A is the Jacobian matrix, h is the vector of heads, and rhs is the vector of right-hand side values
@@ -374,6 +357,41 @@ impl<'a> HydraulicSolver<'a> {
     Err(format!("Maximum number of iterations reached: {}", self.network.options.max_trials))
   }
 
+  fn apply_patterns(&self, state: &mut SolverState, step: usize) {
+
+    let time_options = &self.network.options.time_options;
+    // get the time
+    let time = step * time_options.hydraulic_timestep;
+    // get the pattern time
+    let pattern_time = time_options.pattern_start + time;
+    // get pattern index
+    let pattern_index = pattern_time / time_options.pattern_timestep;
+
+    // apply the head pattern to reservoirs with a head pattern
+    for (i, node) in self.network.nodes.iter().enumerate() {
+      let Some(head_pattern) = node.head_pattern() else { continue };
+      let pattern = &self.network.patterns[head_pattern];
+      state.heads[i] = node.elevation * pattern.multipliers[pattern_index % pattern.multipliers.len()];
+    }
+
+    // apply the demand pattern to junctions
+    state.demands = self.network.nodes.iter().map(|n| {
+        let NodeType::Junction(junction) = &n.node_type else { return 0.0 };
+
+        if let Some(pattern_id) = &junction.pattern {
+          let pattern = &self.network.patterns[pattern_id];
+
+          // get the multiplier for the pattern index (wrap around if needed)
+          let multiplier = pattern.multipliers[pattern_index % pattern.multipliers.len()];
+          return junction.basedemand * multiplier * self.network.options.demand_multiplier;
+        }
+        // if no pattern, return the basedemand times the global demand multiplier
+        return junction.basedemand * self.network.options.demand_multiplier;
+
+      }).collect::<Vec<f64>>()
+
+  }
+
   fn update_tank_links(&self, flows: &Vec<f64>, heads: &Vec<f64>, statuses: &mut Vec<LinkStatus>) {
     // iterate over the tanks
     for (tank_index, node) in self.network.nodes.iter().enumerate() {
@@ -519,40 +537,6 @@ impl<'a> HydraulicSolver<'a> {
         .map(|n| if matches!(n.node_type, NodeType::Junction { .. }) { let id = unknown_id; unknown_id += 1; Some(id) } else { None })
         .collect();
     node_to_unknown
-  }
-
-  /// Get the demands of the junctions for a given pattern index
-  fn get_demands(&self, pattern_index: usize) -> Vec<f64> {
-    let demands = self.network.nodes.iter().map(|n| {
-          if let NodeType::Junction(junction) = &n.node_type {
-            if let Some(pattern_id) = &junction.pattern {
-              let pattern = &self.network.patterns[pattern_id];
-              // get the multiplier for the pattern index (wrap around if needed)
-              let multiplier = pattern.multipliers[pattern_index % pattern.multipliers.len()];
-              return junction.basedemand * multiplier * self.network.options.demand_multiplier;
-            }
-            // if no pattern, return the basedemand
-            return junction.basedemand * self.network.options.demand_multiplier;
-          } else {
-            return 0.0;
-          }
-        }).collect::<Vec<f64>>();
-    demands
-  }
-
-  /// Set the initial heads of the nodes
-  fn get_initial_heads(&self) -> Vec<f64> {
-    self.network.nodes.iter().map(|n| {
-      // if the node is a fixed head node, return the elevation + initial level (for tanks) or just the elevation (for reservoirs)
-      if n.is_fixed() {
-        if let NodeType::Tank(tank) = &n.node_type {
-          return n.elevation + tank.initial_level;
-        }
-        return n.elevation;
-      } else {
-        return 0.0;
-      }
-    }).collect::<Vec<f64>>()
   }
 
 }
