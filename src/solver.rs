@@ -137,7 +137,7 @@ impl<'a> HydraulicSolver<'a> {
   pub fn run(self, mut parallel: bool) -> SolverResult {
     
     // calculate number of steps to run the solver for
-    let steps = (self.network.options.time_options.duration / self.network.options.time_options.hydraulic_timestep) + 1;
+    let steps = (self.network.options.time_options.duration / self.network.options.time_options.report_timestep) + 1;
 
     // initialize the results struct
     let mut results = SolverResult::new(self.network.links.len(), self.network.nodes.len(), steps);
@@ -404,7 +404,7 @@ impl<'a> HydraulicSolver<'a> {
 
     let time_options = &self.network.options.time_options;
     // get the time
-    let time = step * time_options.hydraulic_timestep;
+    let time = step * time_options.report_timestep;
     // get the pattern time
     let pattern_time = time_options.pattern_start + time;
     // get pattern index

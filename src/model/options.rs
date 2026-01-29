@@ -12,6 +12,7 @@ pub enum HeadlossFormula {
 pub struct TimeOptions {
   pub duration: usize,      // duration of the simulation in hours
   pub hydraulic_timestep: usize, // hydraulic timestep in hours
+  pub report_timestep: usize, // report timestep in hours
   pub pattern_timestep: usize, // pattern timestep in hours
   pub pattern_start: usize, // pattern start in hours
   pub start_clocktime: usize, // start clocktime in hours
@@ -22,6 +23,7 @@ impl Default for TimeOptions {
     Self {
       duration: 0,
       hydraulic_timestep: 3600,
+      report_timestep: 3600,
       pattern_timestep: 3600,
       pattern_start: 0,
       start_clocktime: 0,

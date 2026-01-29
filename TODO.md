@@ -20,11 +20,14 @@
 - [x] Implement GPV
 - [x] Implement tank logic
 - [x] Fixed power pumps
+- [ ] Implement CONTROLS
+- [ ] Implement RULES
+- [ ] Refactor how time steps are calculated to match EPANET
 - [ ] Tanks with volume curve
 - [ ] Unit conversion when serializing using Serde
 - [ ] Setup unit and integration testing
 - [ ] Get rid of all the Panics and Unwraps, use Result instead
-- [ ] Unit conversion for head curves
+- [ ] Unit conversion for GPV head curves
 - [ ] Try to get the solver working for f32 in addition to f64 (SIMD speedup?)
 - [ ] Setup automated benchmarks
 - [ ] Create EPANET2_3 API compatibility layer

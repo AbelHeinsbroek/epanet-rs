@@ -161,6 +161,7 @@ impl Network {
             panic!("Rules are not supported yet!");
           }
           ReadState::Controls => {
+            panic!("Controls are not supported yet!");
             self.read_control(line);
           }
         }
@@ -613,6 +614,7 @@ impl Network {
       "DURATION" => self.options.time_options.duration = seconds,
       "HYDRAULIC TIMESTEP" => self.options.time_options.hydraulic_timestep = seconds,
       "PATTERN TIMESTEP" => self.options.time_options.pattern_timestep = seconds,
+      "REPORT TIMESTEP" => self.options.time_options.report_timestep = seconds,
       "PATTERN START" => self.options.time_options.pattern_start = seconds,
       "START CLOCKTIME" => self.options.time_options.start_clocktime = seconds,
       _ => ()
