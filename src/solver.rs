@@ -146,8 +146,8 @@ impl<'a> HydraulicSolver<'a> {
     let mut state = SolverState::new_with_initial_values(self.network);
 
     // check network is elegible for parallel solving if requested
-    if self.network.has_tanks() && parallel {
-      warn!("Networks with tanks cannot be solved in parallel, running sequentially");
+    if (self.network.has_tanks() || self.network.has_pressure_controls()) && parallel {
+      warn!("Networks with tanks or pressure controls cannot be solved in parallel, running sequentially");
       parallel = false;
     }
 
@@ -384,7 +384,7 @@ impl<'a> HydraulicSolver<'a> {
         if state.statuses[i] != LinkStatus::TempClosed && state.statuses[i] != LinkStatus::Xhead {
           stats.status_changed = true;
         }
-        debug!("Status changed for link {} from {:?} to {:?}", link.id, state.statuses[i], status);
+        debug!("<yellow>Status changed for link {} from {:?} to {:?}</>", link.id, state.statuses[i], status);
         state.statuses[i] = status;
       }
 

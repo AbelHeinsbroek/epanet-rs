@@ -6,7 +6,7 @@ use crate::model::curve::Curve;
 use crate::model::valve::ValveType;
 use crate::model::pattern::Pattern;
 use crate::model::options::SimulationOptions;
-use crate::model::control::Control;
+use crate::model::control::{Control, ControlCondition};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -40,6 +40,9 @@ impl Network {
   /// Check if the network has any tanks
   pub fn has_tanks(&self) -> bool {
     self.nodes.iter().any(|n| matches!(n.node_type, NodeType::Tank(_)))
+  }
+  pub fn has_pressure_controls(&self) -> bool {
+    self.controls.iter().any(|c| matches!(c.condition, ControlCondition::Pressure { .. }))
   }
 }
 

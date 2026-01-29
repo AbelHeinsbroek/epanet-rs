@@ -312,6 +312,10 @@ impl UnitConversion for Valve {
     if self.valve_type == ValveType::FCV {
       self.setting = self.setting / flow.per_cfs();
     }
+    // for PRV and PSV, convert the setting to feet
+    if self.valve_type == ValveType::PRV || self.valve_type == ValveType::PSV {
+      self.setting = self.setting / system.per_feet();
+    }
 
 
 
