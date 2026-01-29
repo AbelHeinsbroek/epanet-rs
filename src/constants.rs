@@ -1,5 +1,6 @@
 #![allow(non_upper_case_globals)]
 
+pub const Q_ZERO: f64 = 1e-6;
 pub const SMALL_VALUE: f64 = 1e-6;
 pub const BIG_VALUE: f64 = 1e8;
 pub const TINY: f64 = 1e-6;

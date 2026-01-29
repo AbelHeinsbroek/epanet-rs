@@ -9,7 +9,7 @@ use rayon::prelude::*;
 
 use simplelog::{info, warn, error, debug};
 
-use crate::constants::BIG_VALUE;
+use crate::constants::{BIG_VALUE, Q_ZERO};
 use crate::model::node::NodeType;
 use crate::model::link::{LinkType, LinkTrait, LinkStatus};
 use crate::model::network::Network;
@@ -22,7 +22,12 @@ pub struct SolverResult {
   pub heads: Vec<Vec<f64>>,
   pub demands: Vec<Vec<f64>>,
 }
+
 impl SolverResult {
+  pub fn new(n_links: usize, n_nodes: usize, n_steps: usize) -> Self {
+    Self { flows: vec![vec![0.0; n_links]; n_steps], heads: vec![vec![0.0; n_nodes]; n_steps], demands: vec![vec![0.0; n_nodes]; n_steps] }
+  }
+
   // convert the solver units back to the original units
   pub fn convert_units(&mut self, flow_units: &FlowUnits, unit_system: &UnitSystem) {
     for flow in self.flows.iter_mut() {
@@ -54,6 +59,13 @@ pub struct FlowBalance {
   pub total_demand: f64,
   pub total_supply: f64,
   pub error: f64,
+}
+
+struct SolverState {
+  flows: Vec<f64>,
+  heads: Vec<f64>,
+  demands: Vec<f64>,
+  statuses: Vec<LinkStatus>
 }
 
 /// CSC (Compressed Sparse Column) indices for the Jacobian matrix used in the Global Gradient Algorithm
@@ -96,9 +108,10 @@ impl<'a> HydraulicSolver<'a> {
   /// Run the hydraulic solver
   pub fn run(self, parallel: bool, verbose: bool) -> SolverResult {
     
-    // calculate setps
+    // calculate number of steps to run the solver for
     let steps = (self.network.options.time_options.duration / self.network.options.time_options.hydraulic_timestep) + 1;
 
+    let mut results = SolverResult::new(self.network.links.len(), self.network.nodes.len(), steps);
     // initialize the flows and heads result vectors
     let mut flows: Vec<Vec<f64>> = vec![vec![0.0; self.network.links.len()]; steps];
     let mut heads: Vec<Vec<f64>> = vec![vec![0.0; self.network.nodes.len()]; steps];
@@ -194,7 +207,6 @@ impl<'a> HydraulicSolver<'a> {
 
     // calculate the resistances of the links
     let resistances: Vec<f64> = self.network.links.iter().map(|l| l.resistance()).collect::<Vec<f64>>();
-
     // perform GGA iterations
     // solve the system of equations: A * h = rhs
     // where A is the Jacobian matrix, h is the vector of heads, and rhs is the vector of right-hand side values
@@ -297,7 +309,7 @@ impl<'a> HydraulicSolver<'a> {
           }
           // if no valves found, panic
           let node_index = self.node_to_unknown.iter().position(|&x| x.is_some() && x.unwrap() == index-1).unwrap();
-          panic!("Singular matrix – check connectivity at node '{}'", self.network.nodes[node_index].id);
+          panic!("Singular matrix – check connectivity at node '{}'", self.network.nodes[node_index+1].id);
         }
         Err(e) => {
           // if other error, panic
@@ -348,7 +360,7 @@ impl<'a> HydraulicSolver<'a> {
             if statuses[i] != LinkStatus::TempClosed && statuses[i] != LinkStatus::Xhead {
               status_changed = true;
             }
-            debug!("Status changed for link {} to {:?}", link.id, status);
+            debug!("Status changed for link {} from {:?} to {:?}", link.id, statuses[i], status);
             statuses[i] = status;
           }
 
@@ -371,10 +383,8 @@ impl<'a> HydraulicSolver<'a> {
       if rel_change < self.network.options.accuracy && !status_changed && max_dq < max_flow_change {
 
 
-        if verbose {
           let flow_balance = self.flow_balance(&demands, &flows);
-          println!("Converged in {} iterations: Error = {:.4}, Supply = {:.4}, Demand = {:.4}", iteration, flow_balance.error, flow_balance.total_supply, flow_balance.total_demand);
-        }
+          debug!("Converged in {} iterations: Error = {:.4}, Supply = {:.4}, Demand = {:.4}", iteration, flow_balance.error, flow_balance.total_supply, flow_balance.total_demand);
 
         return Ok(StepResult { flows, heads, demands, statuses });
       }
@@ -495,7 +505,6 @@ impl<'a> HydraulicSolver<'a> {
   }
 
   /// Build sparsity pattern
-  /// 
   fn build_sparsity_pattern(network: &Network, node_to_unknown: &Vec<Option<usize>>) -> SymbolicSparseColMat<usize> {
     let n_unknowns = node_to_unknown.iter().filter(|&x| x.is_some()).count();
 
@@ -536,9 +545,17 @@ impl<'a> HydraulicSolver<'a> {
   /// Compute the initial flows ofthe links (1 ft/s velocity)
   fn get_initial_flows(&self) -> Vec<f64> {
     self.network.links.iter().map(|l| {
+
+      if l.initial_status == LinkStatus::FixedClosed || l.initial_status == LinkStatus::Closed {
+        return Q_ZERO;
+      }
+
       if let LinkType::Pipe(pipe) = &l.link_type {
         return 0.25 * std::f64::consts::PI * pipe.diameter.powi(2);
       } else if let LinkType::Pump(pump) = &l.link_type {
+        if pump.speed == 0.0 {
+          return Q_ZERO;
+        }
         if let Some(head_curve) = &pump.head_curve {
           return head_curve.statistics.q_initial;
         } else {
@@ -547,7 +564,7 @@ impl<'a> HydraulicSolver<'a> {
       } else if let LinkType::Valve(valve) = &l.link_type {
         return 0.25 * std::f64::consts::PI * valve.diameter.powi(2);
       } else {
-        return 0.0;
+        return Q_ZERO;
       }
     }).collect::<Vec<f64>>()
   }
@@ -557,7 +574,6 @@ impl<'a> HydraulicSolver<'a> {
     let demands = self.network.nodes.iter().map(|n| {
           if let NodeType::Junction(junction) = &n.node_type {
             if let Some(pattern_id) = &junction.pattern {
-              // TODO: Can be improved to reduce hashmap lookups by storing the pattern index in the junction
               let pattern = &self.network.patterns[pattern_id];
               // get the multiplier for the pattern index (wrap around if needed)
               let multiplier = pattern.multipliers[pattern_index % pattern.multipliers.len()];
@@ -590,6 +606,7 @@ impl<'a> HydraulicSolver<'a> {
 }
 
 /// Helper function to find the CSC index for a given row and column
+#[inline]
 fn find_csc_index(
     sym: faer::sparse::SymbolicSparseColMatRef<usize>,
     row: usize,
