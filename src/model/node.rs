@@ -36,6 +36,15 @@ impl Node {
     }
     None
   }
+  pub fn initial_head(&self) -> f64 {
+    if self.is_fixed() {
+      if let NodeType::Tank(tank) = &self.node_type {
+        return self.elevation + tank.initial_level;
+      }
+      return self.elevation;
+    }
+    return 0.0;
+  }
 }
 
 impl UnitConversion for Node {

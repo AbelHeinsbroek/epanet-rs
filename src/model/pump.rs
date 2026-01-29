@@ -81,6 +81,18 @@ impl LinkTrait for Pump {
     // Reopen the pump if it was temporarily closed
     None
   }
+
+  fn initial_flow(&self) -> f64 {
+    if self.speed == 0.0 {
+      return Q_ZERO;
+    }
+    if let Some(head_curve) = &self.head_curve {
+      return head_curve.statistics.q_initial;
+    }
+    else {
+      return 1.0; // constant power pump
+    }
+  }
 }
 
 impl UnitConversion for Pump {

@@ -2,6 +2,7 @@ use crate::model::pipe::Pipe;
 use crate::model::pump::Pump;
 use crate::model::valve::Valve;
 use crate::model::units::{FlowUnits, UnitSystem, UnitConversion};
+use crate::constants::Q_ZERO;
 
 use serde::{Deserialize, Serialize};
 
@@ -91,6 +92,8 @@ pub trait LinkTrait {
   fn resistance(&self) -> f64;
   /// Update the status of the link
   fn update_status(&self, status: LinkStatus, flow: f64, head_upstream: f64, head_downstream: f64) -> Option<LinkStatus>;
+  /// Get the initial flow of the link
+  fn initial_flow(&self) -> f64;
 }
 
 impl LinkTrait for Link {
@@ -113,6 +116,19 @@ impl LinkTrait for Link {
       LinkType::Pipe(pipe) => pipe.update_status(status, flow, head_upstream, head_downstream),
       LinkType::Pump(pump) => pump.update_status(status, flow, head_upstream, head_downstream),
       LinkType::Valve(valve) => valve.update_status(status, flow, head_upstream, head_downstream),
+    }
+  }
+  fn initial_flow(&self) -> f64 {
+
+    // if the link is fixed closed or closed, return 0 flow
+    if self.initial_status == LinkStatus::FixedClosed || self.initial_status == LinkStatus::Closed {
+      return Q_ZERO;
+    }
+
+    match &self.link_type {
+      LinkType::Pipe(pipe) => pipe.initial_flow(),
+      LinkType::Pump(pump) => pump.initial_flow(),
+      LinkType::Valve(valve) => valve.initial_flow(),
     }
   }
 }

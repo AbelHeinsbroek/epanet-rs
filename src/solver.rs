@@ -27,6 +27,11 @@ impl SolverResult {
   pub fn new(n_links: usize, n_nodes: usize, n_steps: usize) -> Self {
     Self { flows: vec![vec![0.0; n_links]; n_steps], heads: vec![vec![0.0; n_nodes]; n_steps], demands: vec![vec![0.0; n_nodes]; n_steps] }
   }
+  pub fn append(&mut self, state: &SolverState, step: usize) {
+    self.flows[step] = state.flows.clone();
+    self.heads[step] = state.heads.clone();
+    self.demands[step] = state.demands.clone();
+  }
 
   // convert the solver units back to the original units
   pub fn convert_units(&mut self, flow_units: &FlowUnits, unit_system: &UnitSystem) {
@@ -48,24 +53,31 @@ impl SolverResult {
   }
 }
 
-pub struct StepResult {
-  pub flows: Vec<f64>,
-  pub heads: Vec<f64>,
-  pub demands: Vec<f64>,
-  pub statuses: Vec<LinkStatus>,
-}
-
 pub struct FlowBalance {
   pub total_demand: f64,
   pub total_supply: f64,
   pub error: f64,
 }
 
+#[derive(Debug, Clone)]
 struct SolverState {
   flows: Vec<f64>,
   heads: Vec<f64>,
   demands: Vec<f64>,
-  statuses: Vec<LinkStatus>
+  statuses: Vec<LinkStatus>,
+  resistances: Vec<f64>,
+}
+
+impl SolverState {
+  pub fn new_with_initial_values(network: &Network) -> Self {
+    let state = Self { flows: network.links.iter().map(|l| l.initial_flow()).collect::<Vec<f64>>(), 
+                       heads: network.nodes.iter().map(|n| n.initial_head()).collect::<Vec<f64>>(), 
+                       demands: vec![0.0; network.nodes.len()], 
+                       statuses: network.links.iter().map(|l| l.initial_status).collect::<Vec<LinkStatus>>(),
+                       resistances: network.links.iter().map(|l| l.resistance()).collect::<Vec<f64>>(),
+                      };
+    state
+  }
 }
 
 /// CSC (Compressed Sparse Column) indices for the Jacobian matrix used in the Global Gradient Algorithm
@@ -106,84 +118,59 @@ impl<'a> HydraulicSolver<'a> {
   }
 
   /// Run the hydraulic solver
-  pub fn run(self, parallel: bool, verbose: bool) -> SolverResult {
+  pub fn run(self, mut parallel: bool) -> SolverResult {
     
     // calculate number of steps to run the solver for
     let steps = (self.network.options.time_options.duration / self.network.options.time_options.hydraulic_timestep) + 1;
 
+    // initialize the results struct
     let mut results = SolverResult::new(self.network.links.len(), self.network.nodes.len(), steps);
-    // initialize the flows and heads result vectors
-    let mut flows: Vec<Vec<f64>> = vec![vec![0.0; self.network.links.len()]; steps];
-    let mut heads: Vec<Vec<f64>> = vec![vec![0.0; self.network.nodes.len()]; steps];
-    let mut demands: Vec<Vec<f64>> = vec![vec![0.0; self.network.nodes.len()]; steps];
 
-    // set the initial flows
-    let mut initial_flows: Vec<f64> = self.get_initial_flows();
-
-    // set the initial heads
-    let mut initial_heads: Vec<f64> = self.get_initial_heads();
-
-    // set the initial statuses
-    let mut initial_statuses: Vec<LinkStatus> = self.get_initial_status();
+    let mut state = SolverState::new_with_initial_values(self.network);
+    if self.network.has_tanks() && parallel {
+      warn!("Networks with tanks cannot be solved in parallel");
+      parallel = false;
+    }
 
     // run the solver in parallel using Rayon if enabled
     if parallel {
-      if self.network.has_tanks() {
-        panic!("Networks with tanks cannot be solved in parallel");
-      }
       // solve the first step to use as initial values for the next, parallel computed steps
-      let step_result = self.solve(&initial_flows, &initial_heads, &initial_statuses, 0, verbose).unwrap();
+      let step_result = self.solve(&mut state, 0).unwrap();
 
-      // store the results
-      flows[0] = step_result.flows.clone();
-      heads[0] = step_result.heads.clone();
-      demands[0] = step_result.demands.clone();
-
-      // update the initial flows and heads for the next step
-      initial_flows = step_result.flows.clone();
-      initial_heads = step_result.heads.clone();
-      initial_statuses = step_result.statuses.clone();
+      // store the results of step 0
+      results.append(&step_result, 0);
 
       // do parallel solves using Rayon
-      let results: Vec<StepResult> = (1..steps).into_par_iter().map(|step| {
-        self.solve(&initial_flows, &initial_heads, &initial_statuses, step, verbose).unwrap()
+      let par_results: Vec<SolverState> = (1..steps).into_par_iter().map(|step| {
+        self.solve(&mut state.clone(), step).unwrap()
       }).collect();
-      for (step, step_result) in results.iter().enumerate() {
-        flows[step+1] = step_result.flows.clone();
-        heads[step+1] = step_result.heads.clone();
-        demands[step+1] = step_result.demands.clone();
+      for (step,step_result) in par_results.iter().enumerate() {
+        results.append(step_result, step);
       }
     } else {
       // do sequential solves
       for step in 0..steps {
-        let step_result = self.solve(&initial_flows, &initial_heads, &initial_statuses, step, verbose).unwrap();
-        flows[step] = step_result.flows.clone();
-        heads[step] = step_result.heads.clone();
-        demands[step] = step_result.demands.clone();
-        initial_flows = step_result.flows.clone();
-        initial_heads = step_result.heads.clone();
-        initial_statuses = step_result.statuses.clone();
+        // solve the step, update the state
+        let mut state = self.solve(&mut state, step).unwrap();
+        results.append(&state, step);
         // update the heads of the tanks (= elevation + level) before running the next step
         if steps > 1 {
-          self.update_tanks(&initial_flows, &mut initial_heads);
+          self.update_tanks(&state.flows, &mut state.heads);
         }
       }
     }
-    let mut result = SolverResult { flows, heads, demands };
     // convert the units back to the original units
-    result.convert_units(&self.network.options.flow_units, &self.network.options.unit_system);
-    result
+    results.convert_units(&self.network.options.flow_units, &self.network.options.unit_system);
+    results
   }
 
   /// Solve the network using the Global Gradient Algorithm (Todini & Pilati, 1987) for a single step
   /// Returns the flows and heads
-  fn solve(&self, initial_flows: &Vec<f64>, initial_heads: &Vec<f64>, initial_statuses: &Vec<LinkStatus>, step: usize, verbose: bool) -> Result<StepResult, String> {
+  fn solve(&self, state: &mut SolverState, step: usize) -> Result<SolverState, String> {
 
     debug!("Solving step {}...", step);
 
     let time_options = &self.network.options.time_options;
-    let mut flows = initial_flows.clone();
-    let mut heads = initial_heads.clone();
 
     // get the time
     let time = step * time_options.hydraulic_timestep;
@@ -196,17 +183,12 @@ impl<'a> HydraulicSolver<'a> {
     for (i, node) in self.network.nodes.iter().enumerate() {
       let Some(head_pattern) = node.head_pattern() else { continue };
       let pattern = &self.network.patterns[head_pattern];
-      heads[i] = node.elevation * pattern.multipliers[pattern_index % pattern.multipliers.len()];
+      state.heads[i] = node.elevation * pattern.multipliers[pattern_index % pattern.multipliers.len()];
     }
 
     // gather demands
-    let demands: Vec<f64> = self.get_demands(pattern_index);
+    state.demands = self.get_demands(pattern_index);
 
-    // gather link initial statuses
-    let mut statuses: Vec<LinkStatus> = initial_statuses.clone();
-
-    // calculate the resistances of the links
-    let resistances: Vec<f64> = self.network.links.iter().map(|l| l.resistance()).collect::<Vec<f64>>();
     // perform GGA iterations
     // solve the system of equations: A * h = rhs
     // where A is the Jacobian matrix, h is the vector of heads, and rhs is the vector of right-hand side values
@@ -232,16 +214,16 @@ impl<'a> HydraulicSolver<'a> {
       // set RHS to -demand (unknown nodes only)
       for (global, &head_id) in self.node_to_unknown.iter().enumerate() {
         if let Some(i) = head_id {
-          rhs[i] = -demands[global];
+          rhs[i] = -state.demands[global];
         }
       }
 
       // calculate excess flows at each node (needed for PSV/PRV valves)
-      for (i, demand) in demands.iter().enumerate() {
+      for (i, demand) in state.demands.iter().enumerate() {
         excess_flows[i] = -demand;
       }
       for (i, link) in self.network.links.iter().enumerate() {
-        let q = flows[i];
+        let q = state.flows[i];
         excess_flows[link.start_node] -= q;
         excess_flows[link.end_node] += q;
       }
@@ -249,16 +231,16 @@ impl<'a> HydraulicSolver<'a> {
 
       // assemble Jacobian and RHS contributions from links
       for (i, link) in self.network.links.iter().enumerate() {
-        let q = flows[i];
+        let q = state.flows[i];
         let csc_index = &self.csc_indices[i];
-        let coefficients = link.coefficients(q, resistances[i], statuses[i], excess_flows[link.start_node], excess_flows[link.end_node]);
+        let coefficients = link.coefficients(q, state.resistances[i], state.statuses[i], excess_flows[link.start_node], excess_flows[link.end_node]);
 
         g_invs[i] = coefficients.g_inv;
         ys[i] = coefficients.y;
 
         // update the status of the link if it has a new status
         if let Some(status) = coefficients.new_status {
-          statuses[i] = status;
+          state.statuses[i] = status;
         }
 
         // Get the CSC indices for the start and end nodes
@@ -269,14 +251,14 @@ impl<'a> HydraulicSolver<'a> {
             values[csc_index.diag_u.unwrap()] += coefficients.g_inv;
             rhs[i] -= q - coefficients.y;
             if self.network.nodes[link.end_node].is_fixed() {
-              rhs[i] += coefficients.g_inv * heads[link.end_node];
+              rhs[i] += coefficients.g_inv * state.heads[link.end_node];
             }
         }
         if let Some(j) = v {
             values[csc_index.diag_v.unwrap()] += coefficients.g_inv;
             rhs[j] += q - coefficients.y;
             if self.network.nodes[link.start_node].is_fixed() {
-              rhs[j] += coefficients.g_inv * heads[link.start_node];
+              rhs[j] += coefficients.g_inv * state.heads[link.start_node];
             }
         }
         if let (Some(_i), Some(_j)) = (u, v) {
@@ -304,7 +286,7 @@ impl<'a> HydraulicSolver<'a> {
         // if the pivot is non-positive, try to fix the bad valve
         Err(LltError::Numeric(NonPositivePivot { index })) => {
           // fix the bad valve
-          if self.fix_bad_valve(index-1, &mut statuses) {
+          if self.fix_bad_valve(index-1, &mut state.statuses) {
             continue 'gga;
           }
           // if no valves found, panic
@@ -323,7 +305,7 @@ impl<'a> HydraulicSolver<'a> {
       // update the heads of the nodes (unknown nodes only)
       for (global, &head_id) in self.node_to_unknown.iter().enumerate() {
         if let Some(i) = head_id {
-          heads[global] = dh[(i, 0)];
+          state.heads[global] = dh[(i, 0)];
         }
       }
 
@@ -336,7 +318,7 @@ impl<'a> HydraulicSolver<'a> {
 
       for (i, link) in self.network.links.iter().enumerate() {
           // calculate the head difference between the start and end nodes
-          let dh = heads[link.start_node] - heads[link.end_node];
+          let dh = state.heads[link.start_node] - state.heads[link.end_node];
 
           // calculate the 1/G_ij and Y_ij coefficients
           let g_inv = g_invs[i];
@@ -351,25 +333,25 @@ impl<'a> HydraulicSolver<'a> {
           }
 
           // update the flow of the link
-          flows[i] -= dq;
+          state.flows[i] -= dq;
 
           // update the link status and check for status changes
-          let new_status = link.update_status(statuses[i], flows[i], heads[link.start_node], heads[link.end_node]);
+          let new_status = link.update_status(state.statuses[i], state.flows[i], state.heads[link.start_node], state.heads[link.end_node]);
           if let Some(status) = new_status {
             // ignore temporary closed status changes (Check valve) and pump status changes
-            if statuses[i] != LinkStatus::TempClosed && statuses[i] != LinkStatus::Xhead {
+            if state.statuses[i] != LinkStatus::TempClosed && state.statuses[i] != LinkStatus::Xhead {
               status_changed = true;
             }
-            debug!("Status changed for link {} from {:?} to {:?}", link.id, statuses[i], status);
-            statuses[i] = status;
+            debug!("Status changed for link {} from {:?} to {:?}", link.id, state.statuses[i], status);
+            state.statuses[i] = status;
           }
 
           // update the sum of the absolute changes in flow and the sum of the absolute flows
           sum_dq += dq.abs();
-          sum_q  += flows[i].abs();
+          sum_q  += state.flows[i].abs();
       }
       // update links connected to tanks
-      self.update_tank_links(&flows, &heads, &mut statuses);
+      self.update_tank_links(&state.flows, &state.heads, &mut state.statuses);
 
       let rel_change = sum_dq / (sum_q + 1e-6);
       // convert max_dq and max_dh to correct units
@@ -383,10 +365,10 @@ impl<'a> HydraulicSolver<'a> {
       if rel_change < self.network.options.accuracy && !status_changed && max_dq < max_flow_change {
 
 
-          let flow_balance = self.flow_balance(&demands, &flows);
+          let flow_balance = self.flow_balance(&state.demands, &state.flows);
           debug!("Converged in {} iterations: Error = {:.4}, Supply = {:.4}, Demand = {:.4}", iteration, flow_balance.error, flow_balance.total_supply, flow_balance.total_demand);
 
-        return Ok(StepResult { flows, heads, demands, statuses });
+        return Ok(state.clone());
       }
     }
     Err(format!("Maximum number of iterations reached: {}", self.network.options.max_trials))
@@ -537,36 +519,6 @@ impl<'a> HydraulicSolver<'a> {
         .map(|n| if matches!(n.node_type, NodeType::Junction { .. }) { let id = unknown_id; unknown_id += 1; Some(id) } else { None })
         .collect();
     node_to_unknown
-  }
-
-  fn get_initial_status(&self) -> Vec<LinkStatus> {
-    self.network.links.iter().map(|l| l.initial_status).collect::<Vec<LinkStatus>>()
-  }
-  /// Compute the initial flows ofthe links (1 ft/s velocity)
-  fn get_initial_flows(&self) -> Vec<f64> {
-    self.network.links.iter().map(|l| {
-
-      if l.initial_status == LinkStatus::FixedClosed || l.initial_status == LinkStatus::Closed {
-        return Q_ZERO;
-      }
-
-      if let LinkType::Pipe(pipe) = &l.link_type {
-        return 0.25 * std::f64::consts::PI * pipe.diameter.powi(2);
-      } else if let LinkType::Pump(pump) = &l.link_type {
-        if pump.speed == 0.0 {
-          return Q_ZERO;
-        }
-        if let Some(head_curve) = &pump.head_curve {
-          return head_curve.statistics.q_initial;
-        } else {
-          return 1.0; // constant power pump
-        }
-      } else if let LinkType::Valve(valve) = &l.link_type {
-        return 0.25 * std::f64::consts::PI * valve.diameter.powi(2);
-      } else {
-        return Q_ZERO;
-      }
-    }).collect::<Vec<f64>>()
   }
 
   /// Get the demands of the junctions for a given pattern index

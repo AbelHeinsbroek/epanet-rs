@@ -142,7 +142,7 @@ fn run_solver(input_file: &str, output_file: Option<&str>, parallel: bool, verbo
 
   let start_time = Instant::now();
   let solver = HydraulicSolver::new(&network);
-  let result = solver.run(parallel, verbose);
+  let result = solver.run(parallel);
   let end_time = Instant::now();
   info!("Solver finished in {:?}", end_time.duration_since(start_time));
 

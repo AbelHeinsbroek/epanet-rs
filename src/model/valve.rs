@@ -111,7 +111,10 @@ impl LinkTrait for Valve {
     }
   }
 
-
+  fn initial_flow(&self) -> f64 {
+    // return the initial flow of the valve corresponding to 1 ft/s velocity
+    0.25 * std::f64::consts::PI * self.diameter.powi(2)
+  }
 }
 impl Valve {
 
