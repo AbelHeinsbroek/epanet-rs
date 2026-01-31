@@ -3,7 +3,7 @@ name = "epanet-rs"
 version = "0.1.0"
 edition = "2024"
 description = "A fast, modern and safe re-implementation of the EPANET2 hydraulic solver, written in Rust."
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 faer = { version = "0.23.2", features = ["linalg", "perf-warn"] }
