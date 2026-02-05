@@ -10,7 +10,7 @@ use rayon::prelude::*;
 
 use simplelog::{warn, debug, error};
 
-use crate::constants::{BIG_VALUE, Q_ZERO, H_TOL};
+use crate::constants::{BIG_VALUE, Q_ZERO, H_TOL, PSIperFT};
 use crate::model::node::NodeType;
 use crate::model::link::{LinkType, LinkTrait, LinkStatus};
 use crate::model::network::Network;
@@ -195,22 +195,56 @@ impl<'a> HydraulicSolver<'a> {
 
     results
   }
+
+  fn apply_pressure_controls(&self, state: &mut SolverState) -> bool {
+
+    let mut changed = false;
+
+    for control in &self.network.controls {
+      let active = if let ControlCondition::Pressure { node_id, above, target } = &control.condition {
+        let node_index = self.network.node_map.get(node_id).unwrap();
+        let node = &self.network.nodes[*node_index];
+        if let NodeType::Tank(tank) = &node.node_type {
+          continue; // Tank pressure controls are evaluated after convergence
+        }
+        let value = (state.heads[*node_index] + node.elevation) * PSIperFT; // convert head to pressure
+        if *above {
+          value - *target >= -H_TOL
+        } else {
+          value - *target <= H_TOL
+        }
+      } else {
+        false
+      };
+      if active {
+        let link_index = self.network.link_map.get(&control.link_id).unwrap();
+        changed = changed || state.statuses[*link_index] != control.status.unwrap();
+        state.statuses[*link_index] = control.status.unwrap();
+      }
+    }
+    changed
+  }
+
   // apply controls to the state
   fn apply_controls(&self, state: &mut SolverState, time: usize) {
     let clocktime = (time + self.network.options.time_options.start_clocktime) % (24 * 3600);
+
     // evaluate the controls
     for control in &self.network.controls {
       let active = match &control.condition {
         ControlCondition::Time { seconds } => *seconds == time,
         ControlCondition::ClockTime { seconds } => *seconds == clocktime,
         ControlCondition::Pressure { node_id, above, target } => {
+          if time == 0 {
+            continue; // skip pressure controls at the start of the simulation (no heads calculated yet)
+          }
           let node_index = self.network.node_map.get(node_id).unwrap();
           let node = &self.network.nodes[*node_index];
           // if the node is a tank, check if the head is above or below the target
-          let value = if let NodeType::Tank(tank) = &node.node_type {
+          let value = if let NodeType::Tank(_) = &node.node_type {
             state.heads[*node_index] // head of the tank (ft)
           } else {
-            state.heads[*node_index] + node.elevation // pressure of the node (ft)
+            continue // pressure controls on junctions are evaluated in the solver iteration
           };
 
           if *above {
@@ -236,8 +270,9 @@ impl<'a> HydraulicSolver<'a> {
     let times = &self.network.options.time_options;
     let clocktime = (current_time + times.start_clocktime) % (24 * 3600); // get clocktime
 
-    // if no quality, tanks, rules and controls, simply return report time, but dont do this when skipping timesteps, 
+    // if no quality, tanks, rules and controls, simply return report time, but dont do this when skipping timesteps is set to false, 
     // as skipping timesteps will result in slight mismatches in results due to different initial values
+
     if self.network.controls.len() == 0 && !self.network.has_tanks() && !self.network.has_quality() && self.skip_timesteps {
       return times.report_timestep;
     }
@@ -261,8 +296,19 @@ impl<'a> HydraulicSolver<'a> {
     let t_controls = self.network.controls.iter()
         .map(|control| {
           match &control.condition {
-            ControlCondition::Time { seconds } => (seconds - current_time).max(0), 
-            ControlCondition::ClockTime { seconds } => (seconds - clocktime).max(0),
+            ControlCondition::Time { seconds } => {
+              if *seconds < current_time {
+                return usize::MAX;
+              }
+              seconds - current_time
+            }
+            ControlCondition::ClockTime { seconds } => {
+              if *seconds < clocktime {
+                // wrap around to the next day
+                return ((*seconds as i32 - clocktime as i32) + (24 * 3600)) as usize
+              }
+              seconds - clocktime
+            }
             ControlCondition::Pressure { node_id, above: _, target } => {
               let node_index = self.network.node_map.get(node_id).unwrap();
               let node = &self.network.nodes[*node_index];
@@ -276,6 +322,7 @@ impl<'a> HydraulicSolver<'a> {
 
 
         })
+        .filter(|&x| x > 0)
         .min().unwrap_or(usize::MAX);
 
     let timestep = *[t_report, t_pattern, t_tanks, t_controls, times.hydraulic_timestep].iter().filter(|&x| *x > 0).min().unwrap();
@@ -379,6 +426,11 @@ impl<'a> HydraulicSolver<'a> {
       let max_flow_change = self.network.options.max_flow_change.unwrap_or(BIG_VALUE);
 
       if stats.relative_change < self.network.options.accuracy && !stats.status_changed && stats.max_dq < max_flow_change {
+
+          // apply pressure controls to the state, if any pressure controls are active, return the state
+          if self.apply_pressure_controls(state) {
+            continue 'gga;
+          }
 
           let flow_balance = self.flow_balance(&state.demands, &state.flows);
           debug!("Converged in {} iterations: Error = {:.4}, Supply = {:.4}, Demand = {:.4}", iteration, flow_balance.error, flow_balance.total_supply, flow_balance.total_demand);

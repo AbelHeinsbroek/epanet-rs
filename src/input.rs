@@ -17,6 +17,7 @@ use crate::model::valve::{Valve, ValveType};
 use crate::model::control::{Control, ControlCondition};
 use crate::model::units::{FlowUnits, UnitSystem, PressureUnits, UnitConversion};
 use crate::model::options::*;
+use crate::utils::time::parse_time_str;
 use crate::error::*;
 
 /// Error type for input parsing operations
@@ -638,7 +639,7 @@ impl Network {
     }
 
     let time_units = parts.next();
-    let seconds = parse_time(duration, time_units)?;
+    let seconds = parse_time_str(duration, time_units)?;
 
     // assign the duration to the time options
     match time_option.as_str() {
@@ -689,12 +690,12 @@ impl Network {
       }
       "TIME" => {
         let time_str = parts.next().ok_or_missing("time value")?;
-        let seconds = parse_time(time_str, parts.next())?;
+        let seconds = parse_time_str(time_str, parts.next())?;
         ControlCondition::Time { seconds }
       }
       "CLOCKTIME" => {
         let time_str = parts.next().ok_or_missing("clock time value")?;
-        let seconds = parse_time(time_str, parts.next())?;
+        let seconds = parse_time_str(time_str, parts.next())?;
         ControlCondition::ClockTime { seconds }
       }
       _ => return Err(InputError::new(format!("Invalid control condition type: {}", condition_type))),
@@ -739,52 +740,6 @@ fn parse_line(line: &str) -> std::str::SplitWhitespace<'_> {
   line.split(';').next().unwrap_or("").trim().split_whitespace()
 }
 
-/// Parse a time string with optional time unit suffix.
-/// Supports formats:
-/// - "HH:MM" with optional AM/PM suffix
-/// - Numeric value with unit (HOUR, MINUTE, MIN, SECOND, SEC, DAY, AM, PM)
-/// - If no unit is provided, defaults to HOURS
-fn parse_time(time_str: &str, unit_or_suffix: Option<&str>) -> Result<usize, InputError> {
-  let seconds: usize;
-
-  // If time contains ":", parse as HH:MM format
-  if time_str.contains(":") {
-    let mut time_parts = time_str.split(":");
-    let hours = time_parts.next()
-      .ok_or_else(|| InputError::new("Missing hours in time"))?
-      .parse::<usize>()
-      .map_err(|_| InputError::new(format!("Invalid hours value in time: {}", time_str)))?;
-    let minutes = time_parts.next()
-      .ok_or_else(|| InputError::new("Missing minutes in time"))?
-      .parse::<usize>()
-      .map_err(|_| InputError::new(format!("Invalid minutes value in time: {}", time_str)))?;
-    seconds = hours * 3600 + minutes * 60 + if let Some(suffix) = unit_or_suffix {
-      if suffix.to_uppercase() == "PM" { 12 * 3600 } else { 0 }
-    } else { 0 };
-  } else {
-    // Parse as numeric value with optional time unit
-    let value = time_str.parse::<usize>()
-      .map_err(|_| InputError::new(format!("Invalid time value: {}", time_str)))?;
-    let mut unit = unit_or_suffix.unwrap_or("HOURS").to_uppercase();
-    
-    // Remove trailing "S" for singular form
-    if unit.ends_with("S") && unit != "HOURS" {
-      unit.pop();
-    }
-
-    seconds = match unit.as_str() {
-      "HOUR" | "HOURS" => value * 3600,
-      "MINUTE" | "MIN" => value * 60,
-      "SECOND" | "SEC" => value,
-      "DAY" => value * 86400,
-      "AM" => value * 3600,
-      "PM" => value * 3600 + 12 * 3600,
-      _ => return Err(InputError::new(format!("Invalid time unit: {}", unit))),
-    };
-  }
-
-  Ok(seconds)
-}
 
 #[cfg(test)]
 mod tests {
@@ -1296,6 +1251,7 @@ mod tests {
     };
     assert_eq!(*seconds, 1 * 3600 + 15 * 60);
   }
+
   #[test]
   fn test_clock_time_control() {
     let mut network = test_network(false);
