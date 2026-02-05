@@ -4,10 +4,12 @@ use epanet_rs::model::network::Network;
 use epanet_rs::solver::{HydraulicSolver, SolverResult};
 
 fn verify_heads_and_flows(network: &Network, result: &SolverResult, expected_heads: &Vec<(&str, f64)>, expected_flows: &Vec<(&str, f64)>) {
+
+  let result_length = result.heads.len();
   // Verify heads
   for (node_id, expected_head) in expected_heads {
     let idx = *network.node_map.get(*node_id).expect(&format!("Node {} not found", node_id));
-    let actual_head = result.heads[0][idx];
+    let actual_head = result.heads[result_length-1][idx];
     assert!(
       (actual_head - expected_head).abs() < 0.01,
       "Head mismatch for node {}: expected {:.2}, got {:.2}",
@@ -18,7 +20,7 @@ fn verify_heads_and_flows(network: &Network, result: &SolverResult, expected_hea
   // Verify flows
   for (link_id, expected_flow) in expected_flows {
     let idx = *network.link_map.get(*link_id).expect(&format!("Link {} not found", link_id));
-    let actual_flow = result.flows[0][idx];
+    let actual_flow = result.flows[result_length-1][idx];
     assert!(
       (actual_flow - expected_flow).abs() < 0.01,
       "Flow mismatch for link {}: expected {:.2}, got {:.2}",
@@ -143,3 +145,25 @@ fn test_solve_tanks_network() {
 
   verify_heads_and_flows(&network, &result, &expected_heads, &expected_flows);
 }
+
+/// Test solving 2tanks.inp and verify exact head and flow values
+#[test]
+fn test_solve_2tanks_controls_network() {
+  let mut network = Network::default();
+  network.read_inp("tests/2tanks-controls.inp").expect("Failed to load 2tanks-controls.inp");
+
+  let solver = HydraulicSolver::new(&network);
+  let result = solver.run(false);
+
+  let expected_heads: Vec<(&str, f64)> = vec![
+    ("1", 5.00),
+    ("3", 4.00),
+    ("2", 3.86)
+  ];
+  let expected_flows: Vec<(&str, f64)> = vec![
+    ("1", 0.00),
+    ("2", 1.00)
+  ];
+  verify_heads_and_flows(&network, &result, &expected_heads, &expected_flows);
+}
+  
