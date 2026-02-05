@@ -3,7 +3,7 @@ use crate::model::link::LinkStatus;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ControlCondition {
-  Pressure { node_id: Box<str>, above: bool, below: f64 },
+  Pressure { node_id: Box<str>, above: bool, target: f64 },
   Time { seconds: usize },
   ClockTime { seconds: usize },
 }

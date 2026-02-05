@@ -10,12 +10,13 @@ use rayon::prelude::*;
 
 use simplelog::{warn, debug, error};
 
-use crate::constants::{BIG_VALUE, Q_ZERO};
+use crate::constants::{BIG_VALUE, Q_ZERO, H_TOL};
 use crate::model::node::NodeType;
 use crate::model::link::{LinkType, LinkTrait, LinkStatus};
 use crate::model::network::Network;
 use crate::model::valve::ValveType;
 use crate::model::units::{FlowUnits, UnitSystem};
+use crate::model::control::ControlCondition;
 
 #[derive(Serialize)]
 pub struct SolverResult {
@@ -111,6 +112,7 @@ pub struct HydraulicSolver<'a> {
   symbolic_llt: SymbolicLlt<usize>,
   jac: SparseColMat<usize, f64>,
   csc_indices: Vec<CSCIndex>,
+  pub skip_timesteps: bool, // set to false to match epanet timestep behaviour
 }
 
 impl<'a> HydraulicSolver<'a> {
@@ -130,7 +132,7 @@ impl<'a> HydraulicSolver<'a> {
     // compute the symbolic Cholesky factorization
     let symbolic_llt = SymbolicLlt::try_new(jac.symbolic(), Side::Lower).expect("Failed to compute symbolic Cholesky factorization");
 
-    Self { network, node_to_unknown, sparsity_pattern, symbolic_llt, jac, csc_indices }
+    Self { network, node_to_unknown, sparsity_pattern, symbolic_llt, jac, csc_indices, skip_timesteps: true }
   }
 
   /// Run the hydraulic solver
@@ -176,14 +178,17 @@ impl<'a> HydraulicSolver<'a> {
       while time <= self.network.options.time_options.duration {
         // apply the head pattern to reservoirs with a head pattern
         self.apply_patterns(&mut state, time);
+        // apply controls to the state
+        self.apply_controls(&mut state, time);
         // solve the step, update the state
         state = self.solve(&mut state, time).unwrap();
         // update the heads of the tanks (= elevation + level) before running the next step
         if time % self.network.options.time_options.report_timestep == 0 {
           results.append(&state, time / self.network.options.time_options.report_timestep);
         }
-        time += self.next_time_step(time, &mut state);
-        // time += self.network.options.time_options.hydraulic_timestep;
+        let timestep = self.next_time_step(time, &mut state);
+        dbg!(&timestep);
+        time += timestep;
       }
     }
     // convert the units back to the original units
@@ -191,24 +196,57 @@ impl<'a> HydraulicSolver<'a> {
 
     results
   }
+  // apply controls to the state
+  fn apply_controls(&self, state: &mut SolverState, time: usize) {
+    let clocktime = (time + self.network.options.time_options.start_clocktime) % (24 * 3600);
+    // evaluate the controls
+    for control in &self.network.controls {
+      let active = match &control.condition {
+        ControlCondition::Time { seconds } => *seconds == time,
+        ControlCondition::ClockTime { seconds } => *seconds == clocktime,
+        ControlCondition::Pressure { node_id, above, target } => {
+          let node_index = self.network.node_map.get(node_id).unwrap();
+          let node = &self.network.nodes[*node_index];
+          // if the node is a tank, check if the head is above or below the target
+          let value = if let NodeType::Tank(tank) = &node.node_type {
+            state.heads[*node_index] // head of the tank (ft)
+          } else {
+            state.heads[*node_index] + node.elevation // pressure of the node (ft)
+          };
+
+          if *above {
+            value - *target >= -H_TOL
+          } else {
+            value - *target <= H_TOL
+          }
+        }
+      };
+      if active {
+        // get link
+        let link_index = self.network.link_map.get(&control.link_id).unwrap();
+        // set the status of the link to the control status
+        state.statuses[*link_index] = control.status.unwrap();
+      }
+    }
+  }
+
 
   // Calculate the next time step. The next time step is:
-  // - the report timestep if no quality, tanks, or pressure controls
-  
-
   fn next_time_step(&self, current_time: usize, state: &mut SolverState) -> usize {
 
     let times = &self.network.options.time_options;
+    let clocktime = (current_time + times.start_clocktime) % (24 * 3600); // get clocktime
 
-    // if no quality, tanks, rules and controls, simply return report time
-    if self.network.controls.len() == 0 && !self.network.has_tanks() && !self.network.has_quality() {
+    // if no quality, tanks, rules and controls, simply return report time, but dont do this when skipping timesteps, 
+    // as skipping timesteps will result in slight mismatches in results due to different initial values
+    if self.network.controls.len() == 0 && !self.network.has_tanks() && !self.network.has_quality() && self.skip_timesteps {
       return times.report_timestep;
     }
 
     // time to next report
-    let t_report = current_time % times.report_timestep;
+    let t_report = times.report_timestep - (current_time % times.report_timestep);
     // time to next pattern
-    let t_pattern = current_time % times.pattern_timestep;
+    let t_pattern = times.pattern_timestep - (current_time % times.pattern_timestep);
 
     // time for the next tank to fill or drain
     let t_tanks = self.network.nodes.iter()
@@ -219,10 +257,33 @@ impl<'a> HydraulicSolver<'a> {
           tank.time_to_fill_or_drain(*head, *demand)
         })
         .min().unwrap_or(usize::MAX);
+    
+    // time for the next control to activate
+    let t_controls = self.network.controls.iter()
+        .map(|control| {
+          match &control.condition {
+            ControlCondition::Time { seconds } => (seconds - current_time).max(0), 
+            ControlCondition::ClockTime { seconds } => (seconds - clocktime).max(0),
+            ControlCondition::Pressure { node_id, above: _, target } => {
+              let node_index = self.network.node_map.get(node_id).unwrap();
+              let node = &self.network.nodes[*node_index];
+              if let NodeType::Tank(tank) = &node.node_type {
+                tank.time_to_reach_head(state.heads[*node_index], *target, state.demands[*node_index])
+              } else {
+                usize::MAX
+              }
+            }
+          }
 
-    let next_time = *[t_report, t_pattern, t_tanks, times.hydraulic_timestep].iter().filter(|&x| *x > 0).min().unwrap();
 
-    return next_time
+        })
+        .min().unwrap_or(usize::MAX);
+
+    let timestep = *[t_report, t_pattern, t_tanks, t_controls, times.hydraulic_timestep].iter().filter(|&x| *x > 0).min().unwrap();
+    // update the heads of the tanks
+    self.update_tanks(state, timestep);
+
+    return timestep;
   }
 
   /// Solve the network using the Global Gradient Algorithm (Todini & Pilati, 1987) for a single step
@@ -467,10 +528,14 @@ impl<'a> HydraulicSolver<'a> {
 
   }
 
+  /// Update the links connected to tanks and gather flow balance into/out of tanks
   fn update_tank_links(&self, state: &mut SolverState) {
     // iterate over the tanks
     for (tank_index, node) in self.network.nodes.iter().enumerate() {
+
       if let NodeType::Tank(tank) = &node.node_type {
+        // reset the demand of the tank
+        state.demands[tank_index] = 0.0;
         // check if the tank is closed for filling
         let fill_closed = state.heads[tank_index] >= tank.elevation + tank.max_level && !tank.overflow;
         let empty_closed = state.heads[tank_index] <= tank.elevation + tank.min_level;
@@ -495,25 +560,17 @@ impl<'a> HydraulicSolver<'a> {
   }
   
   /// Update the heads of tanks, and the statuses of the links connected to tanks
-  fn update_tanks(&self, flows: &Vec<f64>, heads: &mut Vec<f64>) {
+  fn update_tanks(&self, state: &mut SolverState, timestep: usize) {
 
     for (tank_index, node) in self.network.nodes.iter().enumerate() {
       if let NodeType::Tank(tank) = &node.node_type {
         // calculate flow balance of the tank
-        let mut flow_balance = 0.0;
-
-        for link_index in &tank.links_to {
-          flow_balance += flows[*link_index];
-        }
-        for link_index in &tank.links_from {
-          flow_balance -= flows[*link_index];
-        }
-
-        let delta_volume = flow_balance * self.network.options.time_options.hydraulic_timestep as f64; // in ft^3
+        let delta_volume = state.demands[tank_index] * timestep as f64; // in ft^3
         // update the head of the tank
-        let new_head = tank.new_head(delta_volume, heads[tank_index]);
+        let new_head = tank.new_head(delta_volume, state.heads[tank_index]);
         // update the head of the tank
-        heads[tank_index] = new_head;
+        state.heads[tank_index] = new_head;
+        println!("Tank {} head updated to {:.2} ft after {:} seconds", tank_index, new_head, timestep);
       }
     }
 

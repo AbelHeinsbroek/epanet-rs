@@ -160,11 +160,11 @@ fn run_solver(input_file: &str, output_file: Option<&str>, parallel: bool, print
     println!("Results:");
     println!("=== Heads:");
     for (i, node) in network.nodes.iter().enumerate() {
-      println!("Node {}: {:.2}", node.id, result.heads[0][i]);
+      println!("Node {}: {:.2}", node.id, result.heads[result.heads.len()-1][i]);
     }
     println!("=== Flows:");
     for (i, link) in network.links.iter().enumerate() {
-      println!("Link {}: {:.2}", link.id, result.flows[0][i]);
+      println!("Link {}: {:.2}", link.id, result.flows[result.flows.len()-1][i]);
     }
   }
 }

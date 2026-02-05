@@ -24,29 +24,57 @@ pub struct Tank {
 }
 
 impl Tank {
-  // calculate the time to fill or drain the tank given the head and flow
+
+  /// Calculate the time to reach a given level given the head and flow
+  pub fn time_to_reach_head(&self, current_head: f64, target_head: f64, flow: f64) -> usize {
+
+    // check if the target head is above the max level or below the min level
+    if target_head > self.elevation + self.max_level {
+      return usize::MAX;
+    }
+    if target_head < self.elevation + self.min_level {
+      return usize::MAX;
+    }
+
+    let current_volume = self.volume_at_head(current_head);
+    let target_volume = self.volume_at_head(target_head);
+
+    let delta_volume = target_volume - current_volume;
+
+    if delta_volume == 0.0 {
+      return 0;
+    }
+    if delta_volume > 0.0 && flow > 0.0 {
+      return (delta_volume / flow) as usize;
+    }
+    if delta_volume < 0.0 && flow < 0.0 {
+      return (delta_volume / flow) as usize;
+    }
+
+    return usize::MAX;
+  }
+  /// calculate the time to fill or drain the tank given the head and flow
   pub fn time_to_fill_or_drain(&self, head: f64, flow: f64) -> usize {
 
-    let current_volume = self.volume_at_head(head);
-
-    let max_volume = self.max_volume();
-    let min_volume = self.min_volume();
-
-    // if flow is positive, the tank is filling
-    if flow > 0.0 {
-      let time_to_fill = (max_volume - current_volume) / flow;
-      return time_to_fill as usize;
+    if flow == 0.0 {
+      return usize::MAX;
     }
-    // if flow is negative, the tank is draining
-    else {
-      let time_to_drain = (current_volume - min_volume) / flow;
-      return time_to_drain as usize;
-    }
+
+    let max_head = self.elevation + self.max_level;
+    let min_head = self.elevation + self.min_level;
+
+    return self.time_to_reach_head(head, max_head, flow).min(self.time_to_reach_head(head, min_head, flow));
 
   }
 
   pub fn volume_at_head(&self, head: f64) -> f64 {
     let level = head - self.elevation;
+
+    // if the level is negative, return 0.0
+    if level < 0.0 {
+      return 0.0;
+    }
+
     if self.volume_curve.is_some() {
       panic!("Tank volume curves not supported yet!");
     }
@@ -102,3 +130,77 @@ impl UnitConversion for Tank {
     }
   }
 }
+
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn test_tank() -> Tank {
+    Tank {
+      elevation: 10.0,
+      initial_level: 10.0,
+      min_level: 5.0,
+      max_level: 20.0,
+      diameter: (10.0 / (PI * 0.25)).sqrt(), // 10 ft^2 surface area
+      min_volume: 0.0,
+      volume_curve_id: None,
+      overflow: false,
+      volume_curve: None,
+      links_to: vec![],
+      links_from: vec![],
+    }
+  }
+
+  #[test]
+  fn test_volume_at_head() {
+    let tank = test_tank();
+    assert!(tank.volume_at_head(11.0) - 10.0 < 1e-6);
+    assert!(tank.volume_at_head(5.0) - 0.0 < 1e-6);
+
+    assert!(tank.max_volume() - 200.0 < 1e-6);
+    assert!(tank.min_volume() - 50.0 < 1e-6);
+  }
+
+  #[test]
+  fn test_time_to_reach_level() {
+    let tank = test_tank();
+    let flow = 1.0; // in ft^3/s
+    // time to reach the target head is 10 seconds
+    let time = tank.time_to_reach_head(20.0, 21.0, flow);
+    assert_eq!(time, 10);
+
+    // time to reach the target head is 10 seconds with negative flow
+    let time = tank.time_to_reach_head(20.0, 19.0, -flow);
+    assert_eq!(time, 10);
+
+    // time to reach the target head is infinite because the target head is lower than the current head with positive flow
+    let time = tank.time_to_reach_head(20.0, 19.0, flow);
+    assert_eq!(time, usize::MAX);
+
+    // time to reach a target head > max level is infinite
+    let time = tank.time_to_reach_head(20.0, 31.0, flow);
+    assert_eq!(time, usize::MAX);
+
+    // time to reach a target head < min level is infinite
+    let time = tank.time_to_reach_head(20.0, 0.0, -flow);
+    assert_eq!(time, usize::MAX);
+
+    // time to fill or drain the tank is 100 seconds with positive flow
+    let time = tank.time_to_fill_or_drain(20.0, flow);
+    assert_eq!(time, 100);
+
+    // time to fill or drain the tank is 50 seconds with negative flow
+    let time = tank.time_to_fill_or_drain(20.0, -flow);
+    assert_eq!(time, 50);
+
+    // time to fill or drain the tank is infinite with zero flow
+    let time = tank.time_to_fill_or_drain(20.0, 0.0);
+    assert_eq!(time, usize::MAX);
+  }
+
+
+
+
+}
+

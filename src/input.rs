@@ -685,7 +685,7 @@ impl Network {
         let above_below = parts.next().ok_or_missing("ABOVE or BELOW")?;
         let above = above_below.to_uppercase() == "ABOVE";
         let value = parts.next().ok_or_missing("pressure value")?.parse_field::<f64>("pressure value")?;
-        ControlCondition::Pressure { node_id, above, below: value }
+        ControlCondition::Pressure { node_id, above, target: value }
       }
       "TIME" => {
         let time_str = parts.next().ok_or_missing("time value")?;
@@ -1265,12 +1265,12 @@ mod tests {
     assert_eq!(control.link_id, "12".into());
     assert_eq!(control.setting, None);
     assert_eq!(control.status, Some(LinkStatus::Closed));
-    let ControlCondition::Pressure { node_id, above, below } = &control.condition else {
+    let ControlCondition::Pressure { node_id, above, target } = &control.condition else {
       panic!("Expected Pressure control condition");
     };
     assert_eq!(*node_id, "23".into());
     assert!(!above);
-    assert_eq!(*below, 20.0);
+    assert_eq!(*target, 20.0);
   }
   #[test]
   fn test_pressure_control_setting() {
