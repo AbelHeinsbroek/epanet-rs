@@ -187,7 +187,6 @@ impl<'a> HydraulicSolver<'a> {
           results.append(&state, time / self.network.options.time_options.report_timestep);
         }
         let timestep = self.next_time_step(time, &mut state);
-        dbg!(&timestep);
         time += timestep;
       }
     }
@@ -570,7 +569,6 @@ impl<'a> HydraulicSolver<'a> {
         let new_head = tank.new_head(delta_volume, state.heads[tank_index]);
         // update the head of the tank
         state.heads[tank_index] = new_head;
-        println!("Tank {} head updated to {:.2} ft after {:} seconds", tank_index, new_head, timestep);
       }
     }
 
