@@ -82,6 +82,7 @@ pub struct SolverState {
   pub heads: Vec<f64>,
   pub demands: Vec<f64>,
   pub statuses: Vec<LinkStatus>,
+  pub settings: Vec<f64>,
   pub resistances: Vec<f64>,
 }
 
@@ -91,6 +92,7 @@ impl SolverState {
     Self { flows: network.links.iter().map(|l| l.initial_flow()).collect::<Vec<f64>>(), 
            heads: network.nodes.iter().map(|n| n.initial_head()).collect::<Vec<f64>>(), 
            demands: vec![0.0; network.nodes.len()], 
+           settings: network.links.iter().map(|l| l.initial_setting()).collect::<Vec<f64>>(),
            statuses: network.links.iter().map(|l| l.initial_status).collect::<Vec<LinkStatus>>(),
            resistances: network.links.iter().map(|l| l.resistance()).collect::<Vec<f64>>(),
          }
@@ -412,7 +414,7 @@ impl<'a> HydraulicSolver<'a> {
     for (i, link) in self.network.links.iter().enumerate() {
       let q = state.flows[i];
       let csc_index = &self.csc_indices[i];
-      let coefficients = link.coefficients(q, state.resistances[i], state.statuses[i], excess_flows[link.start_node], excess_flows[link.end_node]);
+      let coefficients = link.coefficients(q, state.resistances[i], state.settings[i], state.statuses[i], excess_flows[link.start_node], excess_flows[link.end_node]);
 
       link_coefficients.g_inv[i] = coefficients.g_inv;
       link_coefficients.y[i] = coefficients.y;
@@ -492,7 +494,7 @@ impl<'a> HydraulicSolver<'a> {
       state.flows[i] -= dq;
 
       // update the link status and check for status changes
-      let new_status = link.update_status(state.statuses[i], state.flows[i], state.heads[link.start_node], state.heads[link.end_node]);
+      let new_status = link.update_status(state.settings[i], state.statuses[i], state.flows[i], state.heads[link.start_node], state.heads[link.end_node]);
       if let Some(status) = new_status {
         // ignore temporary closed status changes (Check valve) and pump status changes
         if state.statuses[i] != LinkStatus::TempClosed && state.statuses[i] != LinkStatus::Xhead {

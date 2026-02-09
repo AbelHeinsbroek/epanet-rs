@@ -51,9 +51,18 @@ impl Control {
 
   pub fn activate(&self, state: &mut SolverState, network: &Network) -> bool {
     let link_index = network.link_map.get(&self.link_id).unwrap();
-    let changed = state.statuses[*link_index] != self.status.unwrap();
-    state.statuses[*link_index] = self.status.unwrap();
-    changed
+
+    if let Some(status) = self.status {
+      let changed = state.statuses[*link_index] != status;
+      state.statuses[*link_index] = status;
+      return changed
+    }
+    if let Some(setting) = self.setting {
+      let changed = state.settings[*link_index] != setting;
+      state.settings[*link_index] = setting;
+      return changed
+    }
+    return false;
   }
 
 }

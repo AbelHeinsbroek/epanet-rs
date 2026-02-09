@@ -12,6 +12,7 @@
  7               	0           	                	;
  8               	0           	                	;
  10              	0           	                	;
+ 13              	10          	                	;
 
 [TANKS]
 ;ID              	Elevation   	InitLevel   	MinLevel    	MaxLevel    	Diameter    	MinVol      	VolCurve        	Overflow
@@ -20,6 +21,7 @@
  3               	0           	10          	0           	20          	35.68248    	0           	                	;
  4               	0           	10          	0           	20          	35.68248    	0           	                	;
  9               	0           	10          	0           	20          	35.68248    	0           	                	;
+ 12              	0           	10          	0           	20          	200         	0           	                	;
 
 [PIPES]
 ;ID              	Node1           	Node2           	Length      	Diameter    	Roughness   	MinorLoss   	Status
@@ -32,6 +34,7 @@
 
 [PUMPS]
 ;ID              	Node1           	Node2           	Parameters
+ 7               	12              	13              	HEAD 1	;
 
 [VALVES]
 ;ID              	Node1           	Node2           	Diameter    	Type	Setting     	MinorLoss   
@@ -49,6 +52,8 @@
 
 [CURVES]
 ;ID              	X-Value     	Y-Value
+;PUMP: 
+ 1               	1           	1           
 
 [CONTROLS]
 LINK 1 CLOSED IF NODE 1 BELOW 5
@@ -57,8 +62,10 @@ LINK 3 CLOSED AT TIME 2
 LINK 3 OPEN AT TIME 6
 LINK 4 OPEN AT CLOCKTIME 6:10 PM
 LINK 5 CLOSED IF NODE 11 BELOW 2
+LINK 7 1.5 IF NODE 12 BELOW 9
 
 [RULES]
+
 
 [ENERGY]
  Global Efficiency  	75
@@ -91,15 +98,15 @@ LINK 5 CLOSED IF NODE 11 BELOW 2
 ;Tank            	Model
 
 [TIMES]
- Duration           	12:00
- Hydraulic Timestep 	1:00
- Quality Timestep   	0:05
- Pattern Timestep   	1:00
- Pattern Start      	0:00
- Report Timestep    	1:00
- Report Start       	0:00
+ Duration           	12:00 
+ Hydraulic Timestep 	1:00 
+ Quality Timestep   	0:05 
+ Pattern Timestep   	1:00 
+ Pattern Start      	0:00 
+ Report Timestep    	1:00 
+ Report Start       	0:00 
  Start ClockTime    	12 pm
- Statistic          	None
+ Statistic          	NONE
 
 [REPORT]
  Status             	No
@@ -132,11 +139,13 @@ LINK 5 CLOSED IF NODE 11 BELOW 2
 7               	2647.702          	6301.969          
 8               	2669.584          	5645.514          
 10              	2669.584          	4715.536          
+13              	2636.761          	3085.339          
 1               	1400.438          	7669.584          
 2               	1389.497          	7035.011          
 3               	1422.319          	6301.969          
 4               	1455.142          	5645.514          
 9               	1466.083          	4715.536          
+12              	1466.083          	3074.398          
 
 [VERTICES]
 ;Link            	X-Coord           	Y-Coord

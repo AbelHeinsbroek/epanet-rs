@@ -208,7 +208,7 @@ impl HeadCurve {
       let h0 = speed.powi(2) * -self.statistics.h_shutoff;
       let mut n = self.statistics.n;
       if (self.statistics.n-1.0) < TINY { n = 1.0; }
-      let r = self.statistics.r * speed.powf(n-1.0);
+      let r = self.statistics.r * speed.powf(2.0 - n);
 
       // curve is nonlinear
       let (mut hgrad, mut hloss) = if n != 1.0 {
