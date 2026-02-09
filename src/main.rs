@@ -1,10 +1,8 @@
-use std::process::Command;
-use std::process::Stdio;
 use std::time::Instant;
 
 use clap::{Parser, Subcommand};
 
-use simplelog::{info, warn, error, debug, LevelFilter, TerminalMode, ColorChoice, TermLogger, ConfigBuilder};
+use simplelog::{info, error, debug, LevelFilter, TerminalMode, ColorChoice, TermLogger, ConfigBuilder};
 use simplelog::{format_description};
 
 

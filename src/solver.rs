@@ -10,7 +10,7 @@ use rayon::prelude::*;
 
 use simplelog::{warn, debug, error};
 
-use crate::constants::{BIG_VALUE, Q_ZERO, H_TOL, PSIperFT};
+use crate::constants::{BIG_VALUE, Q_ZERO};
 use crate::model::node::NodeType;
 use crate::model::link::{LinkType, LinkTrait, LinkStatus};
 use crate::model::network::Network;
@@ -224,6 +224,10 @@ impl<'a> HydraulicSolver<'a> {
       if matches!(control.condition, ControlCondition::LowPressure { .. } | ControlCondition::HighPressure { .. }) {
         continue;
       }
+      // skip level controls at time 0 (no levels computed yet)
+      if matches!(control.condition, ControlCondition::LowLevel { .. } | ControlCondition::HighLevel { .. }) && time == 0 {
+        continue;
+      }
       // evaluate the control
       if control.is_active(state, self.network, time, clocktime) {
         // activate the control
@@ -257,7 +261,8 @@ impl<'a> HydraulicSolver<'a> {
         .zip(state.demands.iter())
         .map(|((node, head), demand)| {
           let NodeType::Tank(tank) = &node.node_type else { return usize::MAX };
-          tank.time_to_fill_or_drain(*head, *demand)
+          let level = head - node.elevation;
+          tank.time_to_fill_or_drain(level, *demand)
         })
         .min().unwrap_or(usize::MAX);
     
@@ -281,7 +286,8 @@ impl<'a> HydraulicSolver<'a> {
             ControlCondition::LowLevel { tank_index, target } | ControlCondition::HighLevel { tank_index, target } => {
               let node = &self.network.nodes[*tank_index];
               if let NodeType::Tank(tank) = &node.node_type {
-                tank.time_to_reach_head(state.heads[*tank_index], *target, state.demands[*tank_index])
+                let level = state.heads[*tank_index] - node.elevation;
+                tank.time_to_reach_level(level, *target, state.demands[*tank_index])
               } else {
                 usize::MAX
               }

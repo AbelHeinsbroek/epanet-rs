@@ -3,6 +3,7 @@ use crate::model::link::LinkStatus;
 use crate::constants::{PSIperFT, H_TOL};
 use crate::solver::SolverState;
 use crate::model::network::Network;
+use crate::model::node::NodeType;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ControlCondition {
@@ -39,11 +40,17 @@ impl Control {
         value - *target <= H_TOL
       }
       ControlCondition::HighLevel { tank_index, target } => {
-        let value = state.heads[*tank_index];
+        let node = &network.nodes[*tank_index];
+        let NodeType::Tank(tank) = &node.node_type else { return false };
+        // convert head to level
+        let value = state.heads[*tank_index] - tank.elevation;
         value - *target >= -H_TOL
       }
       ControlCondition::LowLevel { tank_index, target } => {
-        let value = state.heads[*tank_index];
+        let node = &network.nodes[*tank_index];
+        let NodeType::Tank(tank) = &node.node_type else { return false };
+        // convert head to level
+        let value = state.heads[*tank_index] - tank.elevation;
         value - *target <= H_TOL
       }
     }
