@@ -20,9 +20,9 @@
 - [x] Implement GPV
 - [x] Implement tank logic
 - [x] Fixed power pumps
-- [ ] Implement CONTROLS
+- [x] Implement CONTROLS
+- [x] Refactor how time steps are calculated to match EPANET
 - [ ] Implement RULES
-- [ ] Refactor how time steps are calculated to match EPANET
 - [ ] Tanks with volume curve
 - [ ] Unit conversion for GPV head curves
 - [ ] Fix Unit conversion when serializing using Serde
