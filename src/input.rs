@@ -686,7 +686,20 @@ impl Network {
         let above_below = parts.next().ok_or_missing("ABOVE or BELOW")?;
         let above = above_below.to_uppercase() == "ABOVE";
         let value = parts.next().ok_or_missing("pressure value")?.parse_field::<f64>("pressure value")?;
-        ControlCondition::Pressure { node_id, above, target: value }
+
+        // get node index
+        let node_index = *self.node_map.get(&node_id).ok_or_else(|| InputError::new(format!("Node '{}' not found for control", node_id)))?;
+        let node = &self.nodes[node_index];
+        let is_tank = matches!(node.node_type, NodeType::Tank(_));
+
+        let condition = match (is_tank, above) {
+          (true, true) => ControlCondition::HighLevel { tank_index: node_index, target: value },
+          (true, false) => ControlCondition::LowLevel { tank_index: node_index, target: value },
+          (false, true) => ControlCondition::HighPressure { node_index: node_index, target: value },
+          (false, false) => ControlCondition::LowPressure { node_index: node_index, target: value },
+        };
+
+        condition
       }
       "TIME" => {
         let time_str = parts.next().ok_or_missing("time value")?;
@@ -746,7 +759,7 @@ mod tests {
   use super::*;
 
   /// Helper to create a network with default options for testing.
-  /// If `with_nodes` is true, adds two default nodes: "N1" (junction) and "N2" (junction).
+  /// If `with_nodes` is true, adds two default nodes: "N1" (junction) and "N2" (junction) and link L1 between them.
   fn test_network(with_nodes: bool) -> Network {
     let mut network = Network::default();
     if with_nodes {
@@ -759,6 +772,15 @@ mod tests {
         id: "N2".into(),
         elevation: 0.0,
         node_type: NodeType::Junction(Junction { basedemand: 0.0, pattern: None }),
+      }).unwrap();
+      network.add_link(Link {
+        id: "L1".into(),
+        link_type: LinkType::Pipe(Pipe { length: 100.0, diameter: 12.0, roughness: 100.0, check_valve: false, headloss_formula: HeadlossFormula::HazenWilliams, minor_loss: 0.0 }),
+        start_node: 0,
+        end_node: 1,
+        start_node_id: "N1".into(),
+        end_node_id: "N2".into(),
+        initial_status: LinkStatus::Open,
       }).unwrap();
     }
     network
@@ -1212,40 +1234,45 @@ mod tests {
   // ==================== Control Tests ====================
   #[test]
   fn test_pressure_control_above() {
-    let mut network = test_network(false);
-    network.read_control("LINK 12 CLOSED IF NODE 23 BELOW 20").unwrap();
+    let mut network = test_network(true);
+    network.read_control("LINK L1 CLOSED IF NODE N1 BELOW 20").unwrap();
 
     assert_eq!(network.controls.len(), 1);
     let control = network.controls.get(0).unwrap();
-    assert_eq!(control.link_id, "12".into());
+    assert_eq!(control.link_id, "L1".into());
     assert_eq!(control.setting, None);
     assert_eq!(control.status, Some(LinkStatus::Closed));
-    let ControlCondition::Pressure { node_id, above, target } = &control.condition else {
-      panic!("Expected Pressure control condition");
+    let ControlCondition::LowPressure { node_index, target } = &control.condition else {
+      panic!("Expected LowPressure control condition");
     };
-    assert_eq!(*node_id, "23".into());
-    assert!(!above);
+    assert_eq!(*node_index, *network.node_map.get("N1").unwrap());
     assert_eq!(*target, 20.0);
   }
   #[test]
   fn test_pressure_control_setting() {
-    let mut network = test_network(false);
-    network.read_control("LINK 12 1.5 IF NODE 23 ABOVE 20").unwrap();
+    let mut network = test_network(true);
+    network.read_control("LINK L1 1.5 IF NODE N1 ABOVE 20").unwrap();
 
     assert_eq!(network.controls.len(), 1);
     let control = network.controls.get(0).unwrap();
-    assert_eq!(control.link_id, "12".into());
+    assert_eq!(control.link_id, "L1".into());
     assert_eq!(control.setting, Some(1.5));
+    assert_eq!(control.status, None);
+    let ControlCondition::HighPressure { node_index, target } = &control.condition else {
+      panic!("Expected HighPressure control condition");
+    };
+    assert_eq!(*node_index, *network.node_map.get("N1").unwrap());
+    assert_eq!(*target, 20.0);
   }
 
   #[test]
   fn test_time_control() {
-    let mut network = test_network(false);
-    network.read_control("LINK 12 CLOSED IF TIME 1:15").unwrap();
+    let mut network = test_network(true);
+    network.read_control("LINK L1 CLOSED IF TIME 1:15").unwrap();
 
     assert_eq!(network.controls.len(), 1);
     let control = network.controls.get(0).unwrap();
-    assert_eq!(control.link_id, "12".into());
+    assert_eq!(control.link_id, "L1".into());
     let ControlCondition::Time { seconds } = &control.condition else {
       panic!("Expected Time control condition");
     };
@@ -1255,11 +1282,11 @@ mod tests {
   #[test]
   fn test_clock_time_control() {
     let mut network = test_network(false);
-    network.read_control("LINK 12 CLOSED IF CLOCKTIME 1:15 PM").unwrap();
+    network.read_control("LINK L1 CLOSED IF CLOCKTIME 1:15 PM").unwrap();
 
     assert_eq!(network.controls.len(), 1);
     let control = network.controls.get(0).unwrap();
-    assert_eq!(control.link_id, "12".into());
+    assert_eq!(control.link_id, "L1".into());
     let ControlCondition::ClockTime { seconds } = &control.condition else {
       panic!("Expected ClockTime control condition");
     };

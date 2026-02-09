@@ -196,30 +196,17 @@ impl<'a> HydraulicSolver<'a> {
     results
   }
 
+  // apply pressure controls to the state
   fn apply_pressure_controls(&self, state: &mut SolverState) -> bool {
 
     let mut changed = false;
 
     for control in &self.network.controls {
-      let active = if let ControlCondition::Pressure { node_id, above, target } = &control.condition {
-        let node_index = self.network.node_map.get(node_id).unwrap();
-        let node = &self.network.nodes[*node_index];
-        if let NodeType::Tank(tank) = &node.node_type {
-          continue; // Tank pressure controls are evaluated after convergence
+      if matches!(control.condition, ControlCondition::LowPressure { .. } | ControlCondition::HighPressure { .. }) {
+        let active = control.is_active(state, self.network, 0, 0);
+        if active {
+          changed = changed || control.activate(state, self.network);
         }
-        let value = (state.heads[*node_index] + node.elevation) * PSIperFT; // convert head to pressure
-        if *above {
-          value - *target >= -H_TOL
-        } else {
-          value - *target <= H_TOL
-        }
-      } else {
-        false
-      };
-      if active {
-        let link_index = self.network.link_map.get(&control.link_id).unwrap();
-        changed = changed || state.statuses[*link_index] != control.status.unwrap();
-        state.statuses[*link_index] = control.status.unwrap();
       }
     }
     changed
@@ -231,34 +218,14 @@ impl<'a> HydraulicSolver<'a> {
 
     // evaluate the controls
     for control in &self.network.controls {
-      let active = match &control.condition {
-        ControlCondition::Time { seconds } => *seconds == time,
-        ControlCondition::ClockTime { seconds } => *seconds == clocktime,
-        ControlCondition::Pressure { node_id, above, target } => {
-          if time == 0 {
-            continue; // skip pressure controls at the start of the simulation (no heads calculated yet)
-          }
-          let node_index = self.network.node_map.get(node_id).unwrap();
-          let node = &self.network.nodes[*node_index];
-          // if the node is a tank, check if the head is above or below the target
-          let value = if let NodeType::Tank(_) = &node.node_type {
-            state.heads[*node_index] // head of the tank (ft)
-          } else {
-            continue // pressure controls on junctions are evaluated in the solver iteration
-          };
-
-          if *above {
-            value - *target >= -H_TOL
-          } else {
-            value - *target <= H_TOL
-          }
-        }
-      };
-      if active {
-        // get link
-        let link_index = self.network.link_map.get(&control.link_id).unwrap();
-        // set the status of the link to the control status
-        state.statuses[*link_index] = control.status.unwrap();
+      // skip pressure controls
+      if matches!(control.condition, ControlCondition::LowPressure { .. } | ControlCondition::HighPressure { .. }) {
+        continue;
+      }
+      // evaluate the control
+      if control.is_active(state, self.network, time, clocktime) {
+        // activate the control
+        control.activate(state, self.network);
       }
     }
   }
@@ -309,16 +276,17 @@ impl<'a> HydraulicSolver<'a> {
               }
               seconds - clocktime
             }
-            ControlCondition::Pressure { node_id, above: _, target } => {
-              let node_index = self.network.node_map.get(node_id).unwrap();
-              let node = &self.network.nodes[*node_index];
+            ControlCondition::LowLevel { tank_index, target } | ControlCondition::HighLevel { tank_index, target } => {
+              let node = &self.network.nodes[*tank_index];
               if let NodeType::Tank(tank) = &node.node_type {
-                tank.time_to_reach_head(state.heads[*node_index], *target, state.demands[*node_index])
+                tank.time_to_reach_head(state.heads[*tank_index], *target, state.demands[*tank_index])
               } else {
                 usize::MAX
               }
             }
+            _ => usize::MAX,
           }
+
 
 
         })
