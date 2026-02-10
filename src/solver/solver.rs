@@ -7,6 +7,10 @@ use faer::prelude::*;
 use serde::Serialize;
 use rayon::prelude::*;
 
+use crate::solver::state::SolverState;
+use crate::solver::result::SolverResult;
+use crate::solver::matrix::{CSCIndex, ResistanceCoefficients, find_csc_index};
+
 
 use simplelog::{warn, debug, error};
 
@@ -18,35 +22,6 @@ use crate::model::valve::ValveType;
 use crate::model::units::{FlowUnits, UnitSystem};
 use crate::model::control::ControlCondition;
 
-#[derive(Serialize)]
-pub struct SolverResult {
-  pub flows: Vec<Vec<f64>>,
-  pub heads: Vec<Vec<f64>>,
-  pub demands: Vec<Vec<f64>>,
-}
-
-impl SolverResult {
-  pub fn new(n_links: usize, n_nodes: usize, n_steps: usize) -> Self {
-    Self { flows: vec![vec![0.0; n_links]; n_steps], heads: vec![vec![0.0; n_nodes]; n_steps], demands: vec![vec![0.0; n_nodes]; n_steps] }
-  }
-
-  fn append(&mut self, state: &SolverState, step: usize) {
-    self.flows[step] = state.flows.clone();
-    self.heads[step] = state.heads.clone();
-    self.demands[step] = state.demands.clone();
-  }
-
-  // convert the solver units back to the original units
-  pub fn convert_units(&mut self, flow_units: &FlowUnits, unit_system: &UnitSystem) {
-
-    let flow_scale = flow_units.per_cfs();
-    let head_scale = unit_system.per_feet();
-
-    self.flows.iter_mut().flatten().for_each(|flow| *flow *= flow_scale);
-    self.heads.iter_mut().flatten().for_each(|head| *head *= head_scale);
-    self.demands.iter_mut().flatten().for_each(|demand| *demand *= flow_scale);
-  }
-}
 
 pub struct FlowBalance {
   pub total_demand: f64,
@@ -54,16 +29,6 @@ pub struct FlowBalance {
   pub error: f64,
 }
 
-pub struct ResistanceCoefficients {
-  pub g_inv: Vec<f64>,
-  pub y: Vec<f64>,
-}
-
-impl ResistanceCoefficients {
-  pub fn new(size: usize) -> Self {
-    Self { g_inv: vec![0.0; size], y: vec![0.0; size] }
-  }
-}
 
 #[derive(Default)]
 pub struct IterationStatistics {
@@ -75,37 +40,7 @@ pub struct IterationStatistics {
   pub relative_change: f64,
 }
 
-/// The solver state is the initial/final state of the solver for a single step
-#[derive(Debug, Clone)]
-pub struct SolverState {
-  pub flows: Vec<f64>,
-  pub heads: Vec<f64>,
-  pub demands: Vec<f64>,
-  pub statuses: Vec<LinkStatus>,
-  pub settings: Vec<f64>,
-  pub resistances: Vec<f64>,
-}
 
-impl SolverState {
-  /// Create a new solver state with the initial values for the flows, heads, demands and statuses and calculate resistances
-  pub fn new_with_initial_values(network: &Network) -> Self {
-    Self { flows: network.links.iter().map(|l| l.initial_flow()).collect::<Vec<f64>>(), 
-           heads: network.nodes.iter().map(|n| n.initial_head()).collect::<Vec<f64>>(), 
-           demands: vec![0.0; network.nodes.len()], 
-           settings: network.links.iter().map(|l| l.initial_setting()).collect::<Vec<f64>>(),
-           statuses: network.links.iter().map(|l| l.initial_status).collect::<Vec<LinkStatus>>(),
-           resistances: network.links.iter().map(|l| l.resistance()).collect::<Vec<f64>>(),
-         }
-  }
-}
-
-/// CSC (Compressed Sparse Column) indices for the Jacobian matrix used in the Global Gradient Algorithm
-#[derive(Default)]
-pub struct CSCIndex {
-  pub diag_u: Option<usize>,      // CSC index for J[u,u]
-  pub diag_v: Option<usize>,      // CSC index for J[v,v]
-  pub off_diag: Option<usize>, // CSC index for lower triangular off-diagonal entry
-}
 
 pub struct HydraulicSolver<'a> {
   network: &'a Network, 
@@ -702,17 +637,3 @@ impl<'a> HydraulicSolver<'a> {
   }
 
 }
-
-/// Helper function to find the CSC index for a given row and column
-#[inline]
-fn find_csc_index(
-    sym: faer::sparse::SymbolicSparseColMatRef<usize>,
-    row: usize,
-    col: usize,
-    ) -> Option<usize> {
-    let col_start = sym.col_ptr()[col];
-    let col_end = sym.col_ptr()[col + 1];
-    sym.row_idx()[col_start..col_end]
-        .iter()
-        .position(|&r| r == row)
-        .map(|pos| col_start + pos)}

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use crate::model::link::LinkStatus;
 use crate::constants::{PSIperFT, H_TOL};
-use crate::solver::SolverState;
+use crate::solver::state::SolverState;
 use crate::model::network::Network;
 use crate::model::node::NodeType;
 
